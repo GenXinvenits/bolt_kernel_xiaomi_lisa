@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2014-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/sysfs.h>
@@ -188,6 +189,19 @@ static int _bcl_store(struct adreno_device *adreno_dev, bool val)
 					val);
 }
 
+static bool _perfcounter_show(struct adreno_device *adreno_dev)
+{
+	return adreno_dev->perfcounter;
+}
+
+static int _perfcounter_store(struct adreno_device *adreno_dev, bool val)
+{
+	if (adreno_dev->perfcounter == val)
+		return 0;
+
+	return adreno_power_cycle_bool(adreno_dev, &adreno_dev->perfcounter, val);
+}
+
 ssize_t adreno_sysfs_store_u32(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
@@ -256,7 +270,6 @@ static ADRENO_SYSFS_BOOL(gpu_llc_slice_enable);
 static ADRENO_SYSFS_BOOL(gpuhtw_llc_slice_enable);
 
 static DEVICE_INT_ATTR(wake_nice, 0644, adreno_wake_nice);
-static DEVICE_INT_ATTR(wake_timeout, 0644, adreno_wake_timeout);
 
 static ADRENO_SYSFS_BOOL(sptp_pc);
 static ADRENO_SYSFS_BOOL(lm);
@@ -266,6 +279,7 @@ static ADRENO_SYSFS_BOOL(ifpc);
 static ADRENO_SYSFS_RO_U32(ifpc_count);
 static ADRENO_SYSFS_BOOL(acd);
 static ADRENO_SYSFS_BOOL(bcl);
+static ADRENO_SYSFS_BOOL(perfcounter);
 
 
 static const struct attribute *_attr_list[] = {
@@ -274,7 +288,6 @@ static const struct attribute *_attr_list[] = {
 	&adreno_attr_ft_long_ib_detect.attr.attr,
 	&adreno_attr_ft_hang_intr_status.attr.attr,
 	&dev_attr_wake_nice.attr.attr,
-	&dev_attr_wake_timeout.attr.attr,
 	&adreno_attr_sptp_pc.attr.attr,
 	&adreno_attr_lm.attr.attr,
 	&adreno_attr_hwcg.attr.attr,
@@ -285,6 +298,7 @@ static const struct attribute *_attr_list[] = {
 	&adreno_attr_ifpc_count.attr.attr,
 	&adreno_attr_acd.attr.attr,
 	&adreno_attr_bcl.attr.attr,
+	&adreno_attr_perfcounter.attr.attr,
 	NULL,
 };
 
@@ -311,7 +325,14 @@ void adreno_sysfs_close(struct adreno_device *adreno_dev)
 int adreno_sysfs_init(struct adreno_device *adreno_dev)
 {
 	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
+	int ret;
 
-	return sysfs_create_files(&device->dev->kobj, _attr_list);
+	ret = sysfs_create_files(&device->dev->kobj, _attr_list);
+
+	/* Notify userspace */
+	if (!ret)
+		kobject_uevent(&device->dev->kobj, KOBJ_ADD);
+
+	return ret;
 }
 

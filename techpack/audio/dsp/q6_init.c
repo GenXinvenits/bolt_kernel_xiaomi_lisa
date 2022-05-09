@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017, 2019-2020 The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 #include <linux/kernel.h>
@@ -23,14 +22,6 @@ static int __init audio_q6_init(void)
 	msm_audio_ion_init();
 	audio_slimslave_init();
 	avtimer_init();
-#ifdef CONFIG_MSM_CSPL
-	crus_sp_init();
-#endif
-/* for elus start */
-#ifdef CONFIG_ELUS_PROXIMITY
-	elliptic_driver_init();
-#endif
-/* for elus end */
 	msm_mdf_init();
 	voice_mhi_init();
 	digital_cdc_rsc_mgr_init();
@@ -46,9 +37,6 @@ static void __exit audio_q6_exit(void)
 {
 	digital_cdc_rsc_mgr_exit();
 	msm_mdf_exit();
-#ifdef CONFIG_MSM_CSPL
-	crus_sp_exit();
-#endif
 	avtimer_exit();
 	audio_slimslave_exit();
 	msm_audio_ion_exit();
@@ -61,11 +49,6 @@ static void __exit audio_q6_exit(void)
 	adm_exit();
 	rtac_exit();
 	audio_cal_exit();
-/* for elus start */
-#ifdef CONFIG_ELUS_PROXIMITY
-	elliptic_driver_exit();
-#endif
-/* for elus end */
 	adsp_err_exit();
 	voice_mhi_exit();
 /* for mius start */

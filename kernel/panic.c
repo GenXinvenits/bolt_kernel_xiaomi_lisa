@@ -3,7 +3,6 @@
  *  linux/kernel/panic.c
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
- *  Copyright (C) 2021 XiaoMi, Inc.
  */
 
 /*
@@ -323,7 +322,11 @@ void panic(const char *fmt, ...)
 		 */
 		if (panic_reboot_mode != REBOOT_UNDEFINED)
 			reboot_mode = panic_reboot_mode;
+#ifndef CONFIG_MACH_XIAOMI
+		emergency_restart();
+#else
 		machine_emergency_restart();
+#endif
 	}
 #ifdef __sparc__
 	{
@@ -354,7 +357,8 @@ void panic(const char *fmt, ...)
 
 EXPORT_SYMBOL(panic);
 
-//Add fuct to save log after long press on kpdpwr.
+#ifdef CONFIG_MACH_XIAOMI
+//Add func to save log after long press on kpdpwr.
 void long_press(void)
 {
 	int old_cpu, this_cpu;
@@ -371,11 +375,12 @@ void long_press(void)
 	bust_spinlocks(1);
 
 	printk_safe_flush_on_panic();
+
 	/*
-	* Note smp_send_stop is the usual smp shutdown function, which
-	* unfortunately means it may not be hardened to work in a
-	* panic situation.
-	*/
+	 * Note smp_send_stop is the usual smp shutdown function, which
+	 * unfortunately means it may not be hardened to work in a
+	 * panic situation.
+	 */
 	smp_send_stop();
 
 	/*
@@ -385,8 +390,8 @@ void long_press(void)
 	printk_safe_flush_on_panic();
 	kmsg_dump(KMSG_DUMP_LONG_PRESS);
 }
-
 EXPORT_SYMBOL(long_press);
+#endif
 
 /*
  * TAINT_FORCED_RMMOD could be a per-module flag but the module

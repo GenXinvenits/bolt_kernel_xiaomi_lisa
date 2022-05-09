@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0
+// Copyright (C) 2021 XiaoMi, Inc.0
+
 /*
  * HwId Module driver for mi dirver acquire some hwid build info,
  * which is only used for xiaomi corporation internally.
- *
- * Copyright (c) 2020 xiaomi inc.
- * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 /*****************************************************************************
@@ -42,14 +41,15 @@ module_param(project_adc, uint, 0444);
 MODULE_PARM_DESC(project_adc, "xiaomi adc value of project resistance");
 
 static struct kobject *hwid_kobj;
-#define hwid_attr(_name) \
+
+#define hwid_attr(_name) 						\
 static struct kobj_attribute _name##_attr = {	\
-	.attr	= {				\
-		.name = __stringify(_name),	\
-		.mode = 0444,			\
-	},					\
-	.show	= _name##_show,			\
-	.store	= NULL,				\
+	.attr	= {									\
+		.name = __stringify(_name),				\
+		.mode = 0444,							\
+	},											\
+	.show	= _name##_show,						\
+	.store	= NULL,								\
 }
 
 /*****************************************************************************
@@ -81,19 +81,28 @@ static ssize_t hwid_build_adc_show(struct kobject *kobj,
 
 const char *product_name_get(void)
 {
-	switch (project){
-		case HARDWARE_PROJECT_J18: return "cetus";
-		case HARDWARE_PROJECT_K1:  return "star";
-		case HARDWARE_PROJECT_K8:  return "odin";
-		case HARDWARE_PROJECT_K2:  return "venus";
-		case HARDWARE_PROJECT_K1A: return "mars";
-		case HARDWARE_PROJECT_K9:  return "renoir";
+	switch (project) {
+		case HARDWARE_PROJECT_J18:
+			return "cetus";
+		case HARDWARE_PROJECT_K1:
+			return "star";
+		case HARDWARE_PROJECT_K8:
+			return "odin";
+		case HARDWARE_PROJECT_K2:
+			return "venus";
+		case HARDWARE_PROJECT_K1A:
+			return "mars";
+		case HARDWARE_PROJECT_K9:
+			return "renoir";
+		case HARDWARE_PROJECT_K9D:
+			return "lisa";
 		case HARDWARE_PROJECT_K11:
-			if ( (uint32_t)CountryIndia == get_hw_country_version())
+			if ((uint32_t)CountryIndia == get_hw_country_version())
 				return "haydnin";
 			else
 				return "haydn";
-		default: return "unknown";
+		default: 
+			return "unknown";
 	}
 }
 EXPORT_SYMBOL(product_name_get);
@@ -115,7 +124,6 @@ uint32_t get_hw_version_platform(void)
 	return project;
 }
 EXPORT_SYMBOL(get_hw_version_platform);
-
 
 uint32_t get_hw_id_value(void)
 {
@@ -188,6 +196,7 @@ sys_fail:
 fail:
 	return ret;
 }
+subsys_initcall(hwid_module_init);
 
 /*****************************************************************************
 *  Name: hwid_module_exit
@@ -198,10 +207,9 @@ static void __exit hwid_module_exit(void)
 		sysfs_remove_group(hwid_kobj, &attr_group);
 		kobject_del(hwid_kobj);
 	}
+
 	pr_info("hwid: hwid module exit success\n");
 }
-
-subsys_initcall(hwid_module_init);
 module_exit(hwid_module_exit);
 
 MODULE_AUTHOR("weixiaotian1@xiaomi.com");

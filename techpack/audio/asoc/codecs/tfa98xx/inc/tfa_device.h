@@ -1,6 +1,6 @@
 /* 
  * Copyright (C) 2014-2020 NXP Semiconductors, All Rights Reserved.
- * Copyright 2020 GOODIX 
+ * Copyright 2021 GOODIX 
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -51,12 +51,12 @@ enum Tfa98xx_DAI {
  * device ops function structure
  */
 struct tfa_device_ops {
-	enum Tfa98xx_Error(*dsp_msg)(struct tfa_device *tfa, int length, const char *buf);
-	enum Tfa98xx_Error(*dsp_msg_read)(struct tfa_device *tfa, int length, unsigned char *bytes);
-	enum Tfa98xx_Error(*reg_read)(struct tfa_device *tfa, unsigned char subaddress, unsigned short *value);
-	enum Tfa98xx_Error(*reg_write)(struct tfa_device *tfa, unsigned char subaddress, unsigned short value);
-	enum Tfa98xx_Error(*mem_read)(struct tfa_device *tfa, unsigned int start_offset, int num_words, int *pValues);
-	enum Tfa98xx_Error(*mem_write)(struct tfa_device *tfa, unsigned short address, int value, int memtype);
+	enum Tfa98xx_Error(*tfa_dsp_msg)(struct tfa_device *tfa, int length, const char *buf);
+	enum Tfa98xx_Error(*tfa_dsp_msg_read)(struct tfa_device *tfa, int length, unsigned char *bytes);
+	enum Tfa98xx_Error(*tfa_reg_read)(struct tfa_device *tfa, unsigned char subaddress, unsigned short *value);
+	enum Tfa98xx_Error(*tfa_reg_write)(struct tfa_device *tfa, unsigned char subaddress, unsigned short value);
+	enum Tfa98xx_Error(*tfa_mem_read)(struct tfa_device *tfa, unsigned int start_offset, int num_words, int *pValues);
+	enum Tfa98xx_Error(*tfa_mem_write)(struct tfa_device *tfa, unsigned short address, int value, int memtype);
 
 	enum Tfa98xx_Error (*tfa_init)(struct tfa_device *tfa); /**< init typically for loading optimal settings */
 	enum Tfa98xx_Error (*dsp_reset)(struct tfa_device *tfa, int state); /**< reset the coolflux dsp */
@@ -64,6 +64,7 @@ struct tfa_device_ops {
 	enum Tfa98xx_Error (*dsp_write_tables)(struct tfa_device *tfa, int sample_rate); /**< write the device/type specific delaytables */
 	enum Tfa98xx_Error (*auto_copy_mtp_to_iic)(struct tfa_device *tfa); /**< Set auto_copy_mtp_to_iic */
 	enum Tfa98xx_Error (*factory_trimmer)(struct tfa_device *tfa); /**< Factory trimming for the Boost converter */
+	enum Tfa98xx_Error (*phase_shift)(struct tfa_device *tfa); /**< Control for PWM phase shift  */
 	int (*set_swprof)(struct tfa_device *tfa, unsigned short new_value); /**< Set the sw profile in the struct and the hw register */
 	int (*get_swprof)(struct tfa_device *tfa); /**< Get the sw profile from the hw register */
 	int(*set_swvstep)(struct tfa_device *tfa, unsigned short new_value); /**< Set the sw vstep in the struct and the hw register */
@@ -73,6 +74,8 @@ struct tfa_device_ops {
 	enum Tfa98xx_Error (*faim_protect)(struct tfa_device *tfa, int state); /**< Protect FAIM from being corrupted  */
 	enum Tfa98xx_Error(*set_osc_powerdown)(struct tfa_device *tfa, int state); /**< Allow to change internal osc. gating settings */
 	enum Tfa98xx_Error(*update_lpm)(struct tfa_device *tfa, int state); /**< Allow to change lowpowermode settings */
+    int (*tfa_set_bitfield)(struct tfa_device* tfa, uint16_t bitfield, uint16_t value);
+    enum Tfa98xx_Error (*tfa_status)(struct tfa_device *tfa);	
 };
 
 /**
@@ -142,6 +145,7 @@ struct tfa_device {
 	int sync_iv_delay; /**< synchronize I/V delay at cold start */
 	int is_probus_device; /**< probus device: device without internal DSP */
 	int advance_keys_handling;
+	unsigned int rate; 
 	int needs_reset; /**< add the reset trigger for SetAlgoParams and SetMBDrc commands */
 	struct kmem_cache *cachep;	/**< Memory allocator handle */
 	char fw_itf_ver[4];          /* Firmware ITF version */
@@ -244,8 +248,15 @@ enum tfa_state tfa_dev_get_state(struct tfa_device *tfa);
  *  - others if width received is not correct 
  */
 int tfa_dev_set_tdm_bitwidth(struct tfa_device *tfa, int width);
-/*****************************************************************************/
-/*****************************************************************************/
+/**
+ * Fill TDM setting addresses for current device needed with dynamic TDM switch 
+ *  @param tfa struct = pointer to context of this device instance
+ *  @param tdme = pointer to be filled with TDME address
+ *  @param tnbck = pointer to be filled with TDMNBCK address
+ *  @param tslln = pointer to be filled with TDMSLLN address
+ *  @param tsize = pointer to be filled with TDMSSIZE address
+ */
+void tfa_dev_get_tdm_add(struct tfa_device* tfa,uint16_t *tdme,uint16_t * tnbck,uint16_t *tslln,uint16_t *tsize);
 /**
  *  MTP support functions
  */
@@ -300,12 +311,14 @@ int tfa_irq_unmask(struct tfa_device *tfa);
 //cnt read
 //debug?
 
+#ifdef CONFIG_MACH_XIAOMI
 /* IRQ handle for tfa987x device */
 int tfa987x_irq_enable(struct tfa_device *tfa, int bit, int status);
 void tfa987x_irq_mask(struct tfa_device *tfa);
 void tfa987x_irq_unmask(struct tfa_device *tfa);
 int tfa987x_irq_clear(struct tfa_device *tfa, int bit);
 int tfa987x_irq_handle(struct tfa_device *tfa);
+#endif
 
 #endif /* __TFA_DEVICE_H__ */
 

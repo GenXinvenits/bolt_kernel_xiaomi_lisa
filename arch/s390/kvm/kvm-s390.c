@@ -318,31 +318,31 @@ static void allow_cpu_feat(unsigned long nr)
 
 static inline int plo_test_bit(unsigned char nr)
 {
-	register unsigned long r0 asm("0") = (unsigned long) nr | 0x100;
+	unsigned long function = (unsigned long)nr | 0x100;
 	int cc;
 
 	asm volatile(
+		"	lgr	0,%[function]\n"
 		/* Parameter registers are ignored for "test bit" */
 		"	plo	0,0,0,0(0)\n"
 		"	ipm	%0\n"
 		"	srl	%0,28\n"
 		: "=d" (cc)
-		: "d" (r0)
-		: "cc");
+		: [function] "d" (function)
+		: "cc", "0");
 	return cc == 0;
 }
 
 static __always_inline void __insn32_query(unsigned int opcode, u8 *query)
 {
-	register unsigned long r0 asm("0") = 0;	/* query function */
-	register unsigned long r1 asm("1") = (unsigned long) query;
-
 	asm volatile(
-		/* Parameter regs are ignored */
+		"	lghi	0,0\n"
+		"	lgr	1,%[query]\n"
+		/* Parameter registers are ignored */
 		"	.insn	rrf,%[opc] << 16,2,4,6,0\n"
 		:
-		: "d" (r0), "a" (r1), [opc] "i" (opcode)
-		: "cc", "memory");
+		: [query] "d" ((unsigned long)query), [opc] "i" (opcode)
+		: "cc", "memory", "0", "1");
 }
 
 #define INSN_SORTL 0xb938
@@ -756,9 +756,9 @@ int kvm_vm_ioctl_enable_cap(struct kvm *kvm, struct kvm_enable_cap *cap)
 			r = -EINVAL;
 		else {
 			r = 0;
-			down_write(&kvm->mm->mmap_sem);
+			mmap_write_lock(kvm->mm);
 			kvm->mm->context.allow_gmap_hpage_1m = 1;
-			up_write(&kvm->mm->mmap_sem);
+			mmap_write_unlock(kvm->mm);
 			/*
 			 * We might have to create fake 4k page
 			 * tables. To avoid that the hardware works on
@@ -1808,7 +1808,7 @@ static long kvm_s390_get_skeys(struct kvm *kvm, struct kvm_s390_skeys *args)
 	if (!keys)
 		return -ENOMEM;
 
-	down_read(&current->mm->mmap_sem);
+	mmap_read_lock(current->mm);
 	srcu_idx = srcu_read_lock(&kvm->srcu);
 	for (i = 0; i < args->count; i++) {
 		hva = gfn_to_hva(kvm, args->start_gfn + i);
@@ -1822,7 +1822,7 @@ static long kvm_s390_get_skeys(struct kvm *kvm, struct kvm_s390_skeys *args)
 			break;
 	}
 	srcu_read_unlock(&kvm->srcu, srcu_idx);
-	up_read(&current->mm->mmap_sem);
+	mmap_read_unlock(current->mm);
 
 	if (!r) {
 		r = copy_to_user((uint8_t __user *)args->skeydata_addr, keys,
@@ -1866,7 +1866,7 @@ static long kvm_s390_set_skeys(struct kvm *kvm, struct kvm_s390_skeys *args)
 		goto out;
 
 	i = 0;
-	down_read(&current->mm->mmap_sem);
+	mmap_read_lock(current->mm);
 	srcu_idx = srcu_read_lock(&kvm->srcu);
         while (i < args->count) {
 		unlocked = false;
@@ -1893,7 +1893,7 @@ static long kvm_s390_set_skeys(struct kvm *kvm, struct kvm_s390_skeys *args)
 			i++;
 	}
 	srcu_read_unlock(&kvm->srcu, srcu_idx);
-	up_read(&current->mm->mmap_sem);
+	mmap_read_unlock(current->mm);
 out:
 	kvfree(keys);
 	return r;
@@ -2079,14 +2079,14 @@ static int kvm_s390_get_cmma_bits(struct kvm *kvm,
 	if (!values)
 		return -ENOMEM;
 
-	down_read(&kvm->mm->mmap_sem);
+	mmap_read_lock(kvm->mm);
 	srcu_idx = srcu_read_lock(&kvm->srcu);
 	if (peek)
 		ret = kvm_s390_peek_cmma(kvm, args, values, bufsize);
 	else
 		ret = kvm_s390_get_cmma(kvm, args, values, bufsize);
 	srcu_read_unlock(&kvm->srcu, srcu_idx);
-	up_read(&kvm->mm->mmap_sem);
+	mmap_read_unlock(kvm->mm);
 
 	if (kvm->arch.migration_mode)
 		args->remaining = atomic64_read(&kvm->arch.cmma_dirty_pages);
@@ -2136,7 +2136,7 @@ static int kvm_s390_set_cmma_bits(struct kvm *kvm,
 		goto out;
 	}
 
-	down_read(&kvm->mm->mmap_sem);
+	mmap_read_lock(kvm->mm);
 	srcu_idx = srcu_read_lock(&kvm->srcu);
 	for (i = 0; i < args->count; i++) {
 		hva = gfn_to_hva(kvm, args->start_gfn + i);
@@ -2151,12 +2151,12 @@ static int kvm_s390_set_cmma_bits(struct kvm *kvm,
 		set_pgste_bits(kvm->mm, hva, mask, pgstev);
 	}
 	srcu_read_unlock(&kvm->srcu, srcu_idx);
-	up_read(&kvm->mm->mmap_sem);
+	mmap_read_unlock(kvm->mm);
 
 	if (!kvm->mm->context.uses_cmm) {
-		down_write(&kvm->mm->mmap_sem);
+		mmap_write_lock(kvm->mm);
 		kvm->mm->context.uses_cmm = 1;
-		up_write(&kvm->mm->mmap_sem);
+		mmap_write_unlock(kvm->mm);
 	}
 out:
 	vfree(bits);
@@ -3092,6 +3092,7 @@ out:
 
 int kvm_arch_vcpu_runnable(struct kvm_vcpu *vcpu)
 {
+	clear_bit(vcpu->vcpu_idx, vcpu->kvm->arch.gisa_int.kicked_mask);
 	return kvm_s390_vcpu_has_irq(vcpu, 0);
 }
 
@@ -3726,7 +3727,7 @@ static int vcpu_pre_run(struct kvm_vcpu *vcpu)
 		kvm_s390_patch_guest_per_regs(vcpu);
 	}
 
-	clear_bit(vcpu->vcpu_id, vcpu->kvm->arch.gisa_int.kicked_mask);
+	clear_bit(kvm_vcpu_get_idx(vcpu), vcpu->kvm->arch.gisa_int.kicked_mask);
 
 	vcpu->arch.sie_block->icptcode = 0;
 	cpuflags = atomic_read(&vcpu->arch.sie_block->cpuflags);
@@ -3980,16 +3981,16 @@ static void store_regs(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 	current->thread.fpu.fpc = vcpu->arch.host_fpregs.fpc;
 	current->thread.fpu.regs = vcpu->arch.host_fpregs.regs;
 	if (MACHINE_HAS_GS) {
+		preempt_disable();
 		__ctl_set_bit(2, 4);
 		if (vcpu->arch.gs_enabled)
 			save_gs_cb(current->thread.gs_cb);
-		preempt_disable();
 		current->thread.gs_cb = vcpu->arch.host_gscb;
 		restore_gs_cb(vcpu->arch.host_gscb);
-		preempt_enable();
 		if (!vcpu->arch.host_gscb)
 			__ctl_clear_bit(2, 4);
 		vcpu->arch.host_gscb = NULL;
+		preempt_enable();
 	}
 	/* SIE will save etoken directly into SDNX and therefore kvm_run */
 }
@@ -4204,10 +4205,15 @@ void kvm_s390_vcpu_stop(struct kvm_vcpu *vcpu)
 	spin_lock(&vcpu->kvm->arch.start_stop_lock);
 	online_vcpus = atomic_read(&vcpu->kvm->online_vcpus);
 
-	/* SIGP STOP and SIGP STOP AND STORE STATUS has been fully processed */
+	/*
+	 * Set the VCPU to STOPPED and THEN clear the interrupt flag,
+	 * now that the SIGP STOP and SIGP STOP AND STORE STATUS orders
+	 * have been fully processed. This will ensure that the VCPU
+	 * is kept BUSY if another VCPU is inquiring with SIGP SENSE.
+	 */
+	kvm_s390_set_cpuflags(vcpu, CPUSTAT_STOPPED);
 	kvm_s390_clear_stop_irq(vcpu);
 
-	kvm_s390_set_cpuflags(vcpu, CPUSTAT_STOPPED);
 	__disable_ibs_on_vcpu(vcpu);
 
 	for (i = 0; i < online_vcpus; i++) {

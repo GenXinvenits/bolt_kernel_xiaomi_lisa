@@ -27,11 +27,11 @@
 #include <linux/ipv6.h>
 #include <linux/seq_file.h>
 #include <linux/poll.h>
-
-// XIAOMI: Add by zhoulei8. It will been use bpf called every voip state.--start
+#ifdef CONFIG_MACH_XIAOMI
 #include <linux/udp.h>
 #include <linux/bpf-cgroup.h>
-// XIAOMI: Add by zhoulei8. It will been use bpf called every voip state.--end
+#endif
+
 /**
  *	struct udp_skb_cb  -  UDP(-Lite) private variables
  *
@@ -175,7 +175,7 @@ struct sk_buff *udp_gro_receive(struct list_head *head, struct sk_buff *skb,
 int udp_gro_complete(struct sk_buff *skb, int nhoff, udp_lookup_t lookup);
 
 struct sk_buff *__udp_gso_segment(struct sk_buff *gso_skb,
-				  netdev_features_t features);
+				  netdev_features_t features, bool is_ipv6);
 
 static inline struct udphdr *udp_gro_udphdr(struct sk_buff *skb)
 {
@@ -463,6 +463,7 @@ void udp_init(void);
 
 DECLARE_STATIC_KEY_FALSE(udp_encap_needed_key);
 void udp_encap_enable(void);
+void udp_encap_disable(void);
 #if IS_ENABLED(CONFIG_IPV6)
 DECLARE_STATIC_KEY_FALSE(udpv6_encap_needed_key);
 void udpv6_encap_enable(void);
@@ -484,8 +485,9 @@ static inline struct sk_buff *udp_rcv_segment(struct sock *sk,
 	 * CHECKSUM_NONE in __udp_gso_segment. UDP GRO indeed builds partial
 	 * packets in udp_gro_complete_segment. As does UDP GSO, verified by
 	 * udp_send_skb. But when those packets are looped in dev_loopback_xmit
-	 * their ip_summed is set to CHECKSUM_UNNECESSARY. Reset in this
-	 * specific case, where PARTIAL is both correct and required.
+	 * their ip_summed CHECKSUM_NONE is changed to CHECKSUM_UNNECESSARY.
+	 * Reset in this specific case, where PARTIAL is both correct and
+	 * required.
 	 */
 	if (skb->pkt_type == PACKET_LOOPBACK)
 		skb->ip_summed = CHECKSUM_PARTIAL;
@@ -507,7 +509,7 @@ static inline struct sk_buff *udp_rcv_segment(struct sock *sk,
 	return segs;
 }
 
-// XIAOMI: Add by zhoulei8. It will been use bpf called every voip states.--start
+#ifdef CONFIG_MACH_XIAOMI
 #ifdef CONFIG_BPF
 static inline int udp_call_bpf(struct sock *sk, int op, u32 nargs, u32 *args)
 {
@@ -530,6 +532,7 @@ static inline int udp_call_bpf(struct sock *sk, int op, u32 nargs, u32 *args)
 		ret = sock_ops.reply;
 	else
 		ret = -1;
+
 	return ret;
 }
 
@@ -538,13 +541,12 @@ static inline int udp_call_bpf(struct sock *sk, int op, u32 nargs, u32 *args)
 {
 	return -EPERM;
 }
-
 #endif
 
 static inline void udp_state_bpf(struct sock *sk)
 {
 	udp_call_bpf(sk, BPF_SOCK_OPS_VOIP_CB, 0, NULL);
 }
-// XIAOMI: Add by zhoulei8. It will been use bpf called every voip states.--end
+#endif
 
 #endif	/* _UDP_H */

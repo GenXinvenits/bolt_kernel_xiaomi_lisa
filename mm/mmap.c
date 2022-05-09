@@ -213,7 +213,7 @@ SYSCALL_DEFINE1(brk, unsigned long, brk)
 	bool downgraded = false;
 	LIST_HEAD(uf);
 
-	if (down_write_killable(&mm->mmap_sem))
+	if (mmap_write_lock_killable(mm))
 		return -EINTR;
 
 	origbrk = mm->brk;
@@ -287,9 +287,9 @@ SYSCALL_DEFINE1(brk, unsigned long, brk)
 success:
 	populate = newbrk > oldbrk && (mm->def_flags & VM_LOCKED) != 0;
 	if (downgraded)
-		up_read(&mm->mmap_sem);
+		mmap_read_unlock(mm);
 	else
-		up_write(&mm->mmap_sem);
+		mmap_write_unlock(mm);
 	userfaultfd_unmap_complete(mm, &uf);
 	if (populate)
 		mm_populate(oldbrk, newbrk - oldbrk);
@@ -297,7 +297,7 @@ success:
 
 out:
 	retval = origbrk;
-	up_write(&mm->mmap_sem);
+	mmap_write_unlock(mm);
 	return retval;
 }
 
@@ -766,29 +766,9 @@ int __vma_adjust(struct vm_area_struct *vma, unsigned long start,
 	long adjust_next = 0;
 	int remove_next = 0;
 
-	/*
-	 * Why using vm_raw_write*() functions here to avoid lockdep's warning ?
-	 *
-	 * Locked is complaining about a theoretical lock dependency, involving
-	 * 3 locks:
-	 *   mapping->i_mmap_rwsem --> vma->vm_sequence --> fs_reclaim
-	 *
-	 * Here are the major path leading to this dependency :
-	 *  1. __vma_adjust() mmap_sem  -> vm_sequence -> i_mmap_rwsem
-	 *  2. move_vmap() mmap_sem -> vm_sequence -> fs_reclaim
-	 *  3. __alloc_pages_nodemask() fs_reclaim -> i_mmap_rwsem
-	 *  4. unmap_mapping_range() i_mmap_rwsem -> vm_sequence
-	 *
-	 * So there is no way to solve this easily, especially because in
-	 * unmap_mapping_range() the i_mmap_rwsem is grab while the impacted
-	 * VMAs are not yet known.
-	 * However, the way the vm_seq is used is guarantying that we will
-	 * never block on it since we just check for its value and never wait
-	 * for it to move, see vma_has_changed() and handle_speculative_fault().
-	 */
-	vm_raw_write_begin(vma);
+	vm_write_begin(vma);
 	if (next)
-		vm_raw_write_begin(next);
+		vm_write_begin(next);
 
 	if (next && !insert) {
 		struct vm_area_struct *exporter = NULL, *importer = NULL;
@@ -872,8 +852,8 @@ int __vma_adjust(struct vm_area_struct *vma, unsigned long start,
 			error = anon_vma_clone(importer, exporter);
 			if (error) {
 				if (next && next != vma)
-					vm_raw_write_end(next);
-				vm_raw_write_end(vma);
+					vm_write_end(next);
+				vm_write_end(vma);
 				return error;
 			}
 		}
@@ -1002,7 +982,7 @@ again:
 		if (next->anon_vma)
 			anon_vma_merge(vma, next);
 		mm->map_count--;
-		vm_raw_write_end(next);
+		vm_write_end(next);
 		put_vma(next);
 		/*
 		 * In mprotect's case 6 (see comments on vma_merge),
@@ -1018,7 +998,7 @@ again:
 			 */
 			next = vma->vm_next;
 			if (next)
-				vm_raw_write_begin(next);
+				vm_write_begin(next);
 		} else {
 			/*
 			 * For the scope of the comment "next" and
@@ -1066,9 +1046,9 @@ again:
 		uprobe_mmap(insert);
 
 	if (next && next != vma)
-		vm_raw_write_end(next);
+		vm_write_end(next);
 	if (!keep_locked)
-		vm_raw_write_end(vma);
+		vm_write_end(vma);
 
 	validate_mm(mm);
 
@@ -2625,7 +2605,7 @@ static int __init cmdline_parse_stack_guard_gap(char *p)
 	if (!*endptr)
 		stack_guard_gap = val << PAGE_SHIFT;
 
-	return 0;
+	return 1;
 }
 __setup("stack_guard_gap=", cmdline_parse_stack_guard_gap);
 
@@ -2954,7 +2934,7 @@ int __do_munmap(struct mm_struct *mm, unsigned long start, size_t len,
 		downgrade = false;
 
 	if (downgrade)
-		downgrade_write(&mm->mmap_sem);
+		mmap_write_downgrade(mm);
 
 	unmap_region(mm, vma, prev, start, end);
 
@@ -2976,7 +2956,7 @@ static int __vm_munmap(unsigned long start, size_t len, bool downgrade)
 	struct mm_struct *mm = current->mm;
 	LIST_HEAD(uf);
 
-	if (down_write_killable(&mm->mmap_sem))
+	if (mmap_write_lock_killable(mm))
 		return -EINTR;
 
 	ret = __do_munmap(mm, start, len, &uf, downgrade);
@@ -2986,10 +2966,10 @@ static int __vm_munmap(unsigned long start, size_t len, bool downgrade)
 	 * it to 0 before return.
 	 */
 	if (ret == 1) {
-		up_read(&mm->mmap_sem);
+		mmap_read_unlock(mm);
 		ret = 0;
 	} else
-		up_write(&mm->mmap_sem);
+		mmap_write_unlock(mm);
 
 	userfaultfd_unmap_complete(mm, &uf);
 	return ret;
@@ -3037,7 +3017,7 @@ SYSCALL_DEFINE5(remap_file_pages, unsigned long, start, unsigned long, size,
 	if (pgoff + (size >> PAGE_SHIFT) < pgoff)
 		return ret;
 
-	if (down_write_killable(&mm->mmap_sem))
+	if (mmap_write_lock_killable(mm))
 		return -EINTR;
 
 	vma = find_vma(mm, start);
@@ -3100,7 +3080,7 @@ SYSCALL_DEFINE5(remap_file_pages, unsigned long, start, unsigned long, size,
 			prot, flags, pgoff, &populate, NULL);
 	fput(file);
 out:
-	up_write(&mm->mmap_sem);
+	mmap_write_unlock(mm);
 	if (populate)
 		mm_populate(ret, populate);
 	if (!IS_ERR_VALUE(ret))
@@ -3199,12 +3179,12 @@ int vm_brk_flags(unsigned long addr, unsigned long request, unsigned long flags)
 	if (!len)
 		return 0;
 
-	if (down_write_killable(&mm->mmap_sem))
+	if (mmap_write_lock_killable(mm))
 		return -EINTR;
 
 	ret = do_brk_flags(addr, len, flags, &uf);
 	populate = ((mm->def_flags & VM_LOCKED) != 0);
-	up_write(&mm->mmap_sem);
+	mmap_write_unlock(mm);
 	userfaultfd_unmap_complete(mm, &uf);
 	if (populate && !ret)
 		mm_populate(addr, len);
@@ -3248,8 +3228,8 @@ void exit_mmap(struct mm_struct *mm)
 		(void)__oom_reap_task_mm(mm);
 
 		set_bit(MMF_OOM_SKIP, &mm->flags);
-		down_write(&mm->mmap_sem);
-		up_write(&mm->mmap_sem);
+		mmap_write_lock(mm);
+		mmap_write_unlock(mm);
 	}
 
 	if (mm->locked_vm) {
@@ -3412,7 +3392,7 @@ struct vm_area_struct *copy_vma(struct vm_area_struct **vmap,
 		 * that we protect it right now, and let the caller unprotect
 		 * it once the move is done.
 		 */
-		vm_raw_write_begin(new_vma);
+		vm_write_begin(new_vma);
 		vma_link(mm, new_vma, prev, rb_link, rb_parent);
 		*need_rmap_locks = false;
 	}
@@ -3619,7 +3599,7 @@ static void vm_lock_anon_vma(struct mm_struct *mm, struct anon_vma *anon_vma)
 		 * The LSB of head.next can't change from under us
 		 * because we hold the mm_all_locks_mutex.
 		 */
-		down_write_nest_lock(&anon_vma->root->rwsem, &mm->mmap_sem);
+		down_write_nest_lock(&anon_vma->root->rwsem, &mm->mmap_lock);
 		/*
 		 * We can safely modify head.next after taking the
 		 * anon_vma->root->rwsem. If some other vma in this mm shares
@@ -3649,7 +3629,7 @@ static void vm_lock_mapping(struct mm_struct *mm, struct address_space *mapping)
 		 */
 		if (test_and_set_bit(AS_MM_ALL_LOCKS, &mapping->flags))
 			BUG();
-		down_write_nest_lock(&mapping->i_mmap_rwsem, &mm->mmap_sem);
+		down_write_nest_lock(&mapping->i_mmap_rwsem, &mm->mmap_lock);
 	}
 }
 
@@ -3695,7 +3675,7 @@ int mm_take_all_locks(struct mm_struct *mm)
 	struct vm_area_struct *vma;
 	struct anon_vma_chain *avc;
 
-	BUG_ON(down_read_trylock(&mm->mmap_sem));
+	BUG_ON(mmap_read_trylock(mm));
 
 	mutex_lock(&mm_all_locks_mutex);
 
@@ -3775,7 +3755,7 @@ void mm_drop_all_locks(struct mm_struct *mm)
 	struct vm_area_struct *vma;
 	struct anon_vma_chain *avc;
 
-	BUG_ON(down_read_trylock(&mm->mmap_sem));
+	BUG_ON(mmap_read_trylock(mm));
 	BUG_ON(!mutex_is_locked(&mm_all_locks_mutex));
 
 	for (vma = mm->mmap; vma; vma = vma->vm_next) {

@@ -23,8 +23,10 @@
 #include <net/netlink.h>
 #include <net/genetlink.h>
 #include <linux/suspend.h>
+#ifdef CONFIG_MACH_XIAOMI
 #include <linux/cpu_cooling.h>
 #include <drm/mi_disp_notifier.h>
+#endif
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/thermal.h>
@@ -36,7 +38,9 @@ MODULE_AUTHOR("Zhang Rui");
 MODULE_DESCRIPTION("Generic thermal management sysfs support");
 MODULE_LICENSE("GPL v2");
 
+#ifdef CONFIG_MACH_XIAOMI
 #define CPU_LIMITS_PARAM_NUM	2
+#endif
 
 static DEFINE_IDA(thermal_tz_ida);
 static DEFINE_IDA(thermal_cdev_ida);
@@ -53,15 +57,17 @@ static atomic_t in_suspend;
 static bool power_off_triggered;
 
 static struct thermal_governor *def_governor;
-#ifdef CONFIG_QTI_THERMAL
-struct device thermal_message_dev;
-EXPORT_SYMBOL_GPL(thermal_message_dev);
+
+#if defined(CONFIG_QTI_THERMAL) && defined(CONFIG_MACH_XIAOMI)
 static atomic_t switch_mode = ATOMIC_INIT(-1);
 static atomic_t temp_state = ATOMIC_INIT(0);
 static char boost_buf[128];
-const char *board_sensor;
 static char board_sensor_temp[128];
+const char *board_sensor;
+struct device thermal_message_dev;
+EXPORT_SYMBOL_GPL(thermal_message_dev);
 #endif
+
 /*
  * Governor section: set of functions to handle thermal governors
  *
@@ -241,15 +247,14 @@ int thermal_build_list_of_policies(char *buf)
 {
 	struct thermal_governor *pos;
 	ssize_t count = 0;
-	ssize_t size = PAGE_SIZE;
 
 	mutex_lock(&thermal_governor_lock);
 
 	list_for_each_entry(pos, &thermal_governor_list, governor_list) {
-		size = PAGE_SIZE - count;
-		count += scnprintf(buf + count, size, "%s ", pos->name);
+		count += scnprintf(buf + count, PAGE_SIZE - count, "%s ",
+				   pos->name);
 	}
-	count += scnprintf(buf + count, size, "\n");
+	count += scnprintf(buf + count, PAGE_SIZE - count, "\n");
 
 	mutex_unlock(&thermal_governor_lock);
 
@@ -565,6 +570,8 @@ static void thermal_zone_device_init(struct thermal_zone_device *tz)
 {
 	struct thermal_instance *pos;
 	tz->temperature = THERMAL_TEMP_INVALID;
+	tz->prev_low_trip = -INT_MAX;
+	tz->prev_high_trip = INT_MAX;
 	list_for_each_entry(pos, &tz->thermal_instances, tz_node)
 		pos->initialized = false;
 }
@@ -1010,11 +1017,16 @@ static void thermal_release(struct device *dev)
 }
 #endif
 
+#ifndef CONFIG_MACH_XIAOMI
+static 
+#endif
 struct class thermal_class = {
 	.name = "thermal",
 	.dev_release = thermal_release,
 };
+#ifdef CONFIG_MACH_XIAOMI
 EXPORT_SYMBOL_GPL(thermal_class);
+#endif
 
 static inline
 void print_bind_err_msg(struct thermal_zone_device *tz,
@@ -1549,7 +1561,7 @@ free_tz:
 EXPORT_SYMBOL_GPL(thermal_zone_device_register);
 
 /**
- * thermal_device_unregister - removes the registered thermal zone device
+ * thermal_zone_device_unregister - removes the registered thermal zone device
  * @tz: the thermal zone device to remove
  */
 void thermal_zone_device_unregister(struct thermal_zone_device *tz)
@@ -1781,7 +1793,7 @@ static struct notifier_block thermal_pm_nb = {
 	.notifier_call = thermal_pm_notify,
 };
 
-#ifdef CONFIG_QTI_THERMAL
+#if defined(CONFIG_QTI_THERMAL) && defined(CONFIG_MACH_XIAOMI)
 static int of_parse_thermal_message(void)
 {
 	struct device_node *np;
@@ -2001,8 +2013,11 @@ static int __init thermal_init(void)
 	if (result)
 		pr_warn("Thermal: Can not register suspend notifier, return %d\n",
 			result);
+#ifdef CONFIG_DEBUG_FS
 	thermal_debug_init();
+#endif
 
+#ifdef CONFIG_MACH_XIAOMI
 	result = of_parse_thermal_message();
 	if (result)
 		pr_warn("Thermal: Can not parse thermal message node, return %d\n",
@@ -2012,6 +2027,7 @@ static int __init thermal_init(void)
 	if (result)
 		pr_warn("Thermal: create thermal message node failed, return %d\n",
 			result);
+#endif
 
 	return 0;
 
@@ -2036,9 +2052,13 @@ static void thermal_exit(void)
 	of_thermal_destroy_zones();
 	destroy_workqueue(thermal_passive_wq);
 	genetlink_exit();
+#ifdef CONFIG_MACH_XIAOMI
 	destroy_thermal_message_node();
+#endif
 	class_unregister(&thermal_class);
+#ifdef CONFIG_DEBUG_FS
 	thermal_debug_exit();
+#endif
 	thermal_unregister_governors();
 	ida_destroy(&thermal_tz_ida);
 	ida_destroy(&thermal_cdev_ida);

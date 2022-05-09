@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 #include <linux/debugfs.h>
@@ -458,6 +457,9 @@ int32_t cam_context_prepare_dev_to_hw(struct cam_context *ctx,
 			rc = cam_sync_check_valid(
 				req->in_map_entries[j].sync_id);
 			if (rc) {
+				spin_lock(&ctx->lock);
+				list_del_init(&req->list);
+				spin_unlock(&ctx->lock);
 				CAM_ERR(CAM_CTXT,
 					"invalid in map sync object %d",
 					req->in_map_entries[j].sync_id);

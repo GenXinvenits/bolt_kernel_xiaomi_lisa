@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  */
-
-#define DEBUG
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/slab.h>
@@ -28,8 +25,9 @@
 #include <asoc/wcdcal-hwdep.h>
 #include "wcd-mbhc-legacy.h"
 #include "wcd-mbhc-adc.h"
-#include "bolero/bolero-cdc.h"
 #include <asoc/wcd-mbhc-v2-api.h>
+#ifdef CONFIG_MACH_XIAOMI
+#include "bolero/bolero-cdc.h"
 #include <linux/debugfs.h>
 
 #define HEADSET_STATUS_RECORD_INDEX_PLUGIN_HEADSET (3)
@@ -78,6 +76,7 @@ static int maxF(int a, int b) {
 		return a + (0x1 << b);
 	}
 }
+#endif
 
 struct mutex hphl_pa_lock;
 struct mutex hphr_pa_lock;
@@ -86,11 +85,15 @@ void wcd_mbhc_jack_report(struct wcd_mbhc *mbhc,
 			  struct snd_soc_jack *jack, int status, int mask)
 {
 	snd_soc_jack_report(jack, status, mask);
+#ifdef CONFIG_MACH_XIAOMI
 	add_headset_event(mbhc->hph_status, mask, jack->status);
+#endif
 }
 EXPORT_SYMBOL(wcd_mbhc_jack_report);
 
-static void add_headset_event(int status, int mask, int jackstatus) {
+#ifdef CONFIG_MACH_XIAOMI
+static void add_headset_event(int status, int mask, int jackstatus)
+{
 	if (status == HEADSET_STATUS_RECORD_INDEX_PLUGOUT) {
 		headset_status[4] = maxF(headset_status[4], HEADSET_EVENT_PLUGOUT_HEADPHONE);
 		headset_status[4] = maxF(headset_status[4], HEADSET_EVENT_PLUGOUT_MICROPHONE);
@@ -103,25 +106,25 @@ static void add_headset_event(int status, int mask, int jackstatus) {
 	} else if (status == HEADSET_STATUS_RECORD_INDEX_PLUGIN_HEADSET) {
 		switch(mask) {
 			case SND_JACK_BTN_0:
-				if(!jackstatus) {
-				headset_status[3] = maxF(headset_status[3], HEADSET_EVENT_KEY_MEDIA_DOWN);
-				} else {
-				headset_status[3] = maxF(headset_status[3], HEADSET_EVENT_KEY_MEDIA_UP);
-				}
+				if (!jackstatus)
+					headset_status[3] = maxF(headset_status[3], HEADSET_EVENT_KEY_MEDIA_DOWN);
+				else
+					headset_status[3] = maxF(headset_status[3], HEADSET_EVENT_KEY_MEDIA_UP);
+
 				break;
 			case SND_JACK_BTN_1:
-				if(!jackstatus) {
-				headset_status[1] = maxF(headset_status[1], HEADSET_EVENT_KEY_PREVIOUS_DOWN);
-				} else {
-				headset_status[1] = maxF(headset_status[1], HEADSET_EVENT_KEY_PREVIOUS_UP);
-				}
+				if (!jackstatus)
+					headset_status[1] = maxF(headset_status[1], HEADSET_EVENT_KEY_PREVIOUS_DOWN);
+				else
+					headset_status[1] = maxF(headset_status[1], HEADSET_EVENT_KEY_PREVIOUS_UP);
+
 				break;
 			case SND_JACK_BTN_2:
-				if(!jackstatus) {
-				headset_status[2] = maxF(headset_status[2], HEADSET_EVENT_KEY_NEXT_DOWN);
-				} else {
-				headset_status[2] = maxF(headset_status[2], HEADSET_EVENT_KEY_NEXT_UP);
-				}
+				if (!jackstatus)
+					headset_status[2] = maxF(headset_status[2], HEADSET_EVENT_KEY_NEXT_DOWN);
+				else
+					headset_status[2] = maxF(headset_status[2], HEADSET_EVENT_KEY_NEXT_UP);
+
 				break;
 			default:
 				headset_status[0] = maxF(headset_status[0], HEADSET_EVENT_PLUGIN_HEADPHONE);
@@ -134,7 +137,8 @@ static void add_headset_event(int status, int mask, int jackstatus) {
 }
 
 static ssize_t headset_status_read(struct file *filp, char __user *buffer,
-		size_t count, loff_t *ppos) {
+		size_t count, loff_t *ppos)
+{
 	char buf[64];
 
 	sprintf(buf, "0x%04x 0x%04x 0x%04x 0x%04x 0x%04x\n",
@@ -146,16 +150,16 @@ static ssize_t headset_status_read(struct file *filp, char __user *buffer,
 }
 
 static ssize_t headset_status_write(struct file *filp, const char __user *buffer,
-		size_t count, loff_t *ppos) {
+		size_t count, loff_t *ppos)
+{
 	char buf[4];
 	size_t buf_size = min(count, sizeof(buf) - 1);
 
 	if (copy_from_user(buf, buffer, buf_size))
 		return -EFAULT;
 
-	if (strncmp(buf, "0", 1) == 0) {
+	if (strncmp(buf, "0", 1) == 0)
 		memset(headset_status, 0, sizeof(headset_status));
-	}
 
 	return count;
 }
@@ -165,6 +169,7 @@ static const struct file_operations mbhc_headset_status_fops = {
 	.read = headset_status_read,
 	.write = headset_status_write,
 };
+#endif
 
 #if IS_ENABLED(CONFIG_AUDIO_QGKI)
 static void __hphocp_off_report(struct wcd_mbhc *mbhc, u32 jack_status,
@@ -647,15 +652,17 @@ static void wcd_mbhc_set_and_turnoff_hph_padac(struct wcd_mbhc *mbhc)
 int wcd_mbhc_get_impedance(struct wcd_mbhc *mbhc, uint32_t *zl,
 			uint32_t *zr)
 {
+#ifdef CONFIG_MACH_XIAOMI
 	int detection_type = -EINVAL;
 
 	WCD_MBHC_REG_READ(WCD_MBHC_MECH_DETECTION_TYPE, detection_type);
-	/* Call compute impedance only when accessory is inserted */
+
 	if (!detection_type) {
 		if (mbhc->mbhc_cb->compute_impedance)
-			mbhc->mbhc_cb->compute_impedance(mbhc,
-						&mbhc->zl, &mbhc->zr);
+			mbhc->mbhc_cb->compute_impedance(mbhc, &mbhc->zl, &mbhc->zr);
 	}
+#endif
+
 	*zl = mbhc->zl;
 	*zr = mbhc->zr;
 
@@ -707,9 +714,10 @@ void wcd_mbhc_report_plug(struct wcd_mbhc *mbhc, int insertion,
 	pr_debug("%s: enter insertion %d hph_status %x\n",
 		 __func__, insertion, mbhc->hph_status);
 	if (!insertion) {
-		if (mbhc->hph_status  == SND_JACK_HEADSET) {
+#ifdef CONFIG_MACH_XIAOMI
+		if (mbhc->hph_status  == SND_JACK_HEADSET)
 			bolero_tx_macro_mute_hs();
-		}
+#endif
 		/* Report removal */
 		mbhc->hph_status &= ~jack_type;
 		/*
@@ -931,7 +939,11 @@ void wcd_mbhc_elec_hs_report_unplug(struct wcd_mbhc *mbhc)
 		pr_info("%s: hs_detect_plug work not cancelled\n", __func__);
 
 	pr_debug("%s: Report extension cable\n", __func__);
+#ifndef CONFIG_MACH_XIAOMI
+	wcd_mbhc_report_plug(mbhc, 1, SND_JACK_LINEOUT);
+#else
 	wcd_mbhc_report_plug(mbhc, 1, SND_JACK_HEADPHONE);
+#endif
 	/*
 	 * If PA is enabled HPHL schmitt trigger can
 	 * be unreliable, make sure to disable it
@@ -983,8 +995,10 @@ void wcd_mbhc_find_plug_and_report(struct wcd_mbhc *mbhc,
 		 * Nothing was reported previously
 		 * report a headphone or unsupported
 		 */
+#ifdef CONFIG_MACH_XIAOMI
 		if (mbhc->current_plug == MBHC_PLUG_TYPE_HEADSET)
 			wcd_mbhc_report_plug(mbhc, 0, SND_JACK_HEADSET);
+#endif
 
 		wcd_mbhc_report_plug(mbhc, 1, SND_JACK_HEADPHONE);
 	} else if (plug_type == MBHC_PLUG_TYPE_GND_MIC_SWAP) {
@@ -1002,8 +1016,10 @@ void wcd_mbhc_find_plug_and_report(struct wcd_mbhc *mbhc,
 			mbhc->mbhc_fn->wcd_mbhc_detect_anc_plug_type(mbhc);
 		jack_type = SND_JACK_HEADSET;
 
+#ifdef CONFIG_MACH_XIAOMI
 		if (mbhc->current_plug == MBHC_PLUG_TYPE_HEADPHONE)
 			wcd_mbhc_report_plug(mbhc, 0, SND_JACK_HEADPHONE);
+#endif
 
 		/*
 		 * If Headphone was reported previously, this will
@@ -1012,8 +1028,13 @@ void wcd_mbhc_find_plug_and_report(struct wcd_mbhc *mbhc,
 		wcd_mbhc_report_plug(mbhc, 1, jack_type);
 	} else if (plug_type == MBHC_PLUG_TYPE_HIGH_HPH) {
 		if (mbhc->mbhc_cfg->detect_extn_cable) {
+#ifndef CONFIG_MACH_XIAOMI
+			/* High impedance device found. Report as LINEOUT */
+			wcd_mbhc_report_plug(mbhc, 1, SND_JACK_LINEOUT);
+#else
 			/* High impedance device found. Report as HEADPHONE */
 			wcd_mbhc_report_plug(mbhc, 1, SND_JACK_HEADPHONE);
+#endif
 			pr_debug("%s: setup mic trigger for further detection\n",
 				 __func__);
 
@@ -1032,7 +1053,11 @@ void wcd_mbhc_find_plug_and_report(struct wcd_mbhc *mbhc,
 			wcd_mbhc_hs_elec_irq(mbhc, WCD_MBHC_ELEC_HS_INS,
 					     true);
 		} else {
+#ifndef CONFIG_MACH_XIAOMI
+			wcd_mbhc_report_plug(mbhc, 1, SND_JACK_LINEOUT);
+#else
 			wcd_mbhc_report_plug(mbhc, 1, SND_JACK_HEADPHONE);
+#endif
 		}
 	} else {
 		WARN(1, "Unexpected current plug_type %d, plug_type %d\n",
@@ -1085,8 +1110,10 @@ static void wcd_mbhc_swch_irq_handler(struct wcd_mbhc *mbhc)
 	WCD_MBHC_RSC_LOCK(mbhc);
 	mbhc->in_swch_irq_handler = true;
 
+#ifdef CONFIG_MACH_XIAOMI
 	WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_FSM_EN, 0);
 	WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_BTN_ISRC_CTL, 0);
+#endif
 
 	/* cancel pending button press */
 	if (wcd_cancel_btn_work(mbhc))
@@ -1148,7 +1175,9 @@ static void wcd_mbhc_swch_irq_handler(struct wcd_mbhc *mbhc)
 			mbhc->mbhc_cb->enable_mb_source(mbhc, true);
 		mbhc->btn_press_intr = false;
 		mbhc->is_btn_press = false;
+#ifdef CONFIG_MACH_XIAOMI
 		mbhc->mbhc_cfg->flip_switch = false;
+#endif
 		if (mbhc->mbhc_fn)
 			mbhc->mbhc_fn->wcd_mbhc_detect_plug_type(mbhc);
 	} else if ((mbhc->current_plug != MBHC_PLUG_TYPE_NONE)
@@ -1274,27 +1303,21 @@ int wcd_mbhc_get_button_mask(struct wcd_mbhc *mbhc)
 	switch (btn) {
 	case 0:
 		mask = SND_JACK_BTN_0;
-        pr_debug("%s() button is 0x%x[hook]", __func__, mask);
 		break;
 	case 1:
 		mask = SND_JACK_BTN_1;
-        pr_debug("%s() button is 0x%x[volume up]", __func__, mask);
 		break;
 	case 2:
 		mask = SND_JACK_BTN_2;
-        pr_debug("%s() button is 0x%x[volume down]", __func__, mask);
 		break;
 	case 3:
 		mask = SND_JACK_BTN_3;
-        pr_debug("%s() button is 0x%x", __func__, mask);
 		break;
 	case 4:
 		mask = SND_JACK_BTN_4;
-        pr_debug("%s() button is 0x%x", __func__, mask);
 		break;
 	case 5:
 		mask = SND_JACK_BTN_5;
-        pr_debug("%s() button is 0x%x", __func__, mask);
 		break;
 	default:
 		break;
@@ -1445,14 +1468,14 @@ static irqreturn_t wcd_mbhc_release_handler(int irq, void *data)
 				pr_debug("%s: Switch irq kicked in, ignore\n",
 					__func__);
 			} else {
-				pr_debug("%s: Reporting btn %#x press\n",
-					 __func__, mbhc->buttons_pressed);
+				pr_debug("%s: Reporting btn press\n",
+					 __func__);
 				wcd_mbhc_jack_report(mbhc,
 						     &mbhc->button_jack,
 						     mbhc->buttons_pressed,
 						     mbhc->buttons_pressed);
-				pr_debug("%s: Reporting btn %#x release\n",
-					 __func__, mbhc->buttons_pressed);
+				pr_debug("%s: Reporting btn release\n",
+					 __func__);
 				wcd_mbhc_jack_report(mbhc,
 						&mbhc->button_jack,
 						0, mbhc->buttons_pressed);
@@ -1608,15 +1631,30 @@ static int wcd_mbhc_initialise(struct wcd_mbhc *mbhc)
 		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_L_DET_EN, 1);
 
 	if (mbhc->mbhc_cfg->enable_usbc_analog) {
+#ifndef CONFIG_MACH_XIAOMI
+		/* Insertion debounce set to 48ms */
+		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_INSREM_DBNC, 4);
+#else
 		/* Insertion debounce set to 192ms */
 		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_INSREM_DBNC, 8);
+#endif
 	} else {
+#ifndef CONFIG_MACH_XIAOMI
+		/* Insertion debounce set to 96ms */
+		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_INSREM_DBNC, 6);
+#else
 		/* Insertion debounce set to 512ms */
 		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_INSREM_DBNC, 0xb);
+#endif
 	}
 
+#ifndef CONFIG_MACH_XIAOMI
+	/* Button Debounce set to 16ms */
+	WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_BTN_DBNC, 2);
+#else
 	/* Button Debounce set to 32ms */
 	WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_BTN_DBNC, 3);
+#endif
 
 	/* enable bias */
 	mbhc->mbhc_cb->mbhc_bias(component, true);
@@ -1796,7 +1834,6 @@ static int wcd_mbhc_init_gpio(struct wcd_mbhc *mbhc,
 	dev_dbg(mbhc->component->dev, "%s: gpio %s\n", __func__, gpio_dt_str);
 
 	*gpio_dn = of_parse_phandle(card->dev->of_node, gpio_dt_str, 0);
-
 	if (!(*gpio_dn)) {
 		*gpio = of_get_named_gpio(card->dev->of_node, gpio_dt_str, 0);
 		if (!gpio_is_valid(*gpio)) {
@@ -1812,7 +1849,6 @@ static int wcd_mbhc_init_gpio(struct wcd_mbhc *mbhc,
 #endif
 
 #if IS_ENABLED(CONFIG_QCOM_FSA4480_I2C)
-
 static int wcd_mbhc_usbc_ana_event_handler(struct notifier_block *nb,
 					   unsigned long mode, void *ptr)
 {
@@ -1825,11 +1861,15 @@ static int wcd_mbhc_usbc_ana_event_handler(struct notifier_block *nb,
 
 	if (mode == TYPEC_ACCESSORY_AUDIO) {
 		if (mbhc->mbhc_cb->clk_setup) {
+#ifdef CONFIG_MACH_XIAOMI
 			mbhc->mbhc_cb->clk_setup(mbhc->component, false);
+#endif
 			mbhc->mbhc_cb->clk_setup(mbhc->component, true);
 		}
 		/* insertion detected, enable L_DET_EN */
+#ifdef CONFIG_MACH_XIAOMI
 		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_L_DET_EN, 0);
+#endif
 		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_L_DET_EN, 1);
 	}
 	return 0;
@@ -1877,22 +1917,18 @@ int wcd_mbhc_start(struct wcd_mbhc *mbhc, struct wcd_mbhc_config *mbhc_cfg)
 	/* Parse fsa switch handle */
 	if (mbhc_cfg->enable_usbc_analog) {
 #ifdef CONFIG_AUDIO_UART_DEBUG
-		if (of_find_property(card->dev->of_node,
-					"qcom,uart-audio-sw-gpio",
-					NULL)) {
-			rc = wcd_mbhc_init_gpio(mbhc, mbhc_cfg,
-					"qcom,uart-audio-sw-gpio",
-					&mbhc_cfg->uart_audio_switch_gpio,
-					&mbhc_cfg->uart_audio_switch_gpio_p);
+		if (of_find_property(card->dev->of_node, "qcom,uart-audio-sw-gpio", NULL)) {
+			rc = wcd_mbhc_init_gpio(mbhc, mbhc_cfg,	"qcom,uart-audio-sw-gpio",
+					&mbhc_cfg->uart_audio_switch_gpio, &mbhc_cfg->uart_audio_switch_gpio_p);
 			if (rc)
 				goto err;
-			#ifdef CONFIG_FASTBOOT_CMD_CTRL_UART
+#ifdef CONFIG_FASTBOOT_CMD_CTRL_UART
 			if (!is_early_cons_enabled) {
 				/*disable uart as it can produce noise when headset was pluged-in*/
 				msm_cdc_pinctrl_select_active_state(mbhc_cfg->uart_audio_switch_gpio_p);
 				dev_dbg(mbhc->component->dev, "disable uart in wcd_mbhc_start() \n");
 			}
-			#endif
+#endif
 		}
 #endif
 
@@ -2000,11 +2036,13 @@ int wcd_mbhc_init(struct wcd_mbhc *mbhc, struct snd_soc_component *component,
 
 	pr_debug("%s: enter\n", __func__);
 
+#ifdef CONFIG_MACH_XIAOMI
 	mbhc_debugfs_dir = debugfs_create_dir(DEBUGFS_DIR_NAME, NULL);
 	if (!IS_ERR(mbhc_debugfs_dir)) {
 		debugfs_create_file(DEBUGFS_HEADSET_STATUS_FILE_NAME, 0666,
 				mbhc_debugfs_dir, NULL, &mbhc_headset_status_fops);
 	}
+#endif
 
 	ret = of_property_read_u32(card->dev->of_node, hph_switch, &hph_swh);
 	if (ret) {

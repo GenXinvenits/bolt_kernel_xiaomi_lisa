@@ -8,20 +8,14 @@
  *
  */
 
-
 #include "dbgprint.h"
 #include "tfa_container.h"
 #include "tfa.h"
 #include "tfa98xx_tfafieldnames.h"
 #include "tfa_internal.h"
 
-#ifdef __KERNEL__
-	#ifdef pr_fmt
-	#undef pr_fmt
-	#endif
-	#define pr_fmt(fmt) "[tfa98xx] %s(): " fmt, __func__
-#endif
-/* handle macro for bitfield */
+#define TFA_API_SBFW_8_09_00                (31) /**< Corresponds to SB3.5 PRC2 release */
+ /* handle macro for bitfield */
 #define TFA_MK_BF(reg, pos, len) ((reg<<8)|(pos<<4)|(len-1))
 
 /* abstract family for register */
@@ -47,6 +41,7 @@ void tfanone_ops(struct tfa_device_ops *ops);
 void tfa9872_ops(struct tfa_device_ops *ops);
 void tfa9873_ops(struct tfa_device_ops *ops);
 void tfa9874_ops(struct tfa_device_ops *ops);
+void tfa9875_ops(struct tfa_device_ops *ops);
 void tfa9878_ops(struct tfa_device_ops *ops);
 void tfa9912_ops(struct tfa_device_ops *ops);
 void tfa9888_ops(struct tfa_device_ops *ops);
@@ -99,11 +94,11 @@ int tfa_irq_clear(struct tfa_device *tfa, enum tfa9912_irq bit)
 	if (bit == tfa9912_irq_all) {
 		/* operate on all bits */
 		for (reg = TFA98XX_INTERRUPT_IN_REG1; reg < TFA98XX_INTERRUPT_IN_REG1 + 3; reg++)
-			reg_write(tfa, reg, 0xffff); /* all bits */
+			tfa_reg_write(tfa, reg, 0xffff); /* all bits */
 	}
 	else if (bit < tfa9912_irq_max) {
 		reg = (unsigned char)(TFA98XX_INTERRUPT_IN_REG1 + (bit >> 4));
-		reg_write(tfa, reg, 1 << (bit & 0x0f)); /* only this bit */
+		tfa_reg_write(tfa, reg, 1 << (bit & 0x0f)); /* only this bit */
 	}
 	else
 		return -1;
@@ -122,7 +117,7 @@ int tfa_irq_get(struct tfa_device *tfa, enum tfa9912_irq bit)
 		/* only this bit */
 		reg = TFA98XX_INTERRUPT_OUT_REG1 + (bit >> 4);
 		mask = 1 << (bit & 0x0f);
-		reg_read(tfa, (unsigned char)reg, &value);
+		tfa_reg_read(tfa, (unsigned char)reg, &value);
 	}
 	else
 		return -1;
@@ -141,7 +136,7 @@ int tfa_irq_ena(struct tfa_device *tfa, enum tfa9912_irq bit, int state)
 	if (bit == tfa9912_irq_all) {
 		/* operate on all bits */
 		for (reg = TFA98XX_INTERRUPT_ENABLE_REG1; reg <= TFA98XX_INTERRUPT_ENABLE_REG1 + tfa9912_irq_max / 16; reg++) {
-			reg_write(tfa, (unsigned char)reg, state ? 0xffff : 0); /* all bits */
+			tfa_reg_write(tfa, (unsigned char)reg, state ? 0xffff : 0); /* all bits */
 			tfa->interrupt_enable[reg - TFA98XX_INTERRUPT_ENABLE_REG1] = state ? 0xffff : 0; /* all bits */
 		}
 	}
@@ -149,13 +144,13 @@ int tfa_irq_ena(struct tfa_device *tfa, enum tfa9912_irq bit, int state)
 		/* only this bit */
 		reg = TFA98XX_INTERRUPT_ENABLE_REG1 + (bit >> 4);
 		mask = 1 << (bit & 0x0f);
-		reg_read(tfa, (unsigned char)reg, &value);
+		tfa_reg_read(tfa, (unsigned char)reg, &value);
 		if (state) //set
 			new_value = (uint16_t)(value | mask);
 		else 		// clear
 			new_value = value & ~mask;
 		if (new_value != value) {
-			reg_write(tfa, (unsigned char)reg, new_value); /* only this bit */
+			tfa_reg_write(tfa, (unsigned char)reg, new_value); /* only this bit */
 			tfa->interrupt_enable[reg - TFA98XX_INTERRUPT_ENABLE_REG1] = new_value;
 		}
 	}
@@ -174,7 +169,7 @@ int tfa_irq_mask(struct tfa_device *tfa)
 
 	/* operate on all bits */
 	for (reg = TFA98XX_INTERRUPT_ENABLE_REG1; reg <= TFA98XX_INTERRUPT_ENABLE_REG1 + tfa9912_irq_max / 16; reg++)
-		reg_write(tfa, (unsigned char)reg, 0);
+		tfa_reg_write(tfa, (unsigned char)reg, 0);
 
 	return 0;
 }
@@ -188,7 +183,7 @@ int tfa_irq_unmask(struct tfa_device *tfa)
 
 	/* operate on all bits */
 	for (reg = TFA98XX_INTERRUPT_ENABLE_REG1; reg <= TFA98XX_INTERRUPT_ENABLE_REG1 + tfa9912_irq_max / 16; reg++)
-		reg_write(tfa, (unsigned char)reg, tfa->interrupt_enable[reg - TFA98XX_INTERRUPT_ENABLE_REG1]);
+		tfa_reg_write(tfa, (unsigned char)reg, tfa->interrupt_enable[reg - TFA98XX_INTERRUPT_ENABLE_REG1]);
 
 	return 0;
 }
@@ -205,20 +200,20 @@ int tfa_irq_set_pol(struct tfa_device *tfa, enum tfa9912_irq bit, int state)
 	if (bit == tfa9912_irq_all) {
 		/* operate on all bits */
 		for (reg = TFA98XX_STATUS_POLARITY_REG1; reg <= TFA98XX_STATUS_POLARITY_REG1 + tfa9912_irq_max / 16; reg++) {
-			reg_write(tfa, (unsigned char)reg, state ? 0xffff : 0); /* all bits */
+			tfa_reg_write(tfa, (unsigned char)reg, state ? 0xffff : 0); /* all bits */
 		}
 	}
 	else if (bit < tfa9912_irq_max) {
 		/* only this bit */
 		reg = TFA98XX_STATUS_POLARITY_REG1 + (bit >> 4);
 		mask = 1 << (bit & 0x0f);
-		reg_read(tfa, (unsigned char)reg, &value);
+		tfa_reg_read(tfa, (unsigned char)reg, &value);
 		if (state) /* Active High */
 			new_value = (uint16_t)(value | mask);
 		else       /* Active Low */
 			new_value = value & ~mask;
 		if (new_value != value) {
-			reg_write(tfa, (unsigned char)reg, new_value); /* only this bit */
+			tfa_reg_write(tfa, (unsigned char)reg, new_value); /* only this bit */
 		}
 	}
 	else
@@ -227,12 +222,13 @@ int tfa_irq_set_pol(struct tfa_device *tfa, enum tfa9912_irq bit, int state)
 	return 0;
 }
 
+#ifdef CONFIG_MACH_XIAOMI
 int tfa987x_irq_enable(struct tfa_device *tfa, int bit, int status)
 {
 	enum Tfa98xx_Error err = Tfa98xx_Error_Ok;
 	pr_debug("[slave=0x%x] bit=0x%x  status=%d\n", tfa->slave_address, bit, status);
 	if (tfa2_irq_all == bit) {
-		err = reg_write(tfa, TFA98XX_INTERRUPT_ENABLE_REG1, status ? 0xffff : 0); /* all bits */
+		err = tfa_reg_write(tfa, TFA98XX_INTERRUPT_ENABLE_REG1, status ? 0xffff : 0); /* all bits */
 		tfa->interrupt_enable[0] = status ? 0xffff : 0; /* all bits */
 	} else {
 		uint16_t value = 0, new_value = 0;
@@ -245,7 +241,7 @@ int tfa987x_irq_enable(struct tfa_device *tfa, int bit, int status)
 			return -1;
 		}
 
-		err = reg_read(tfa, TFA98XX_INTERRUPT_ENABLE_REG1, &value);
+		err = tfa_reg_read(tfa, TFA98XX_INTERRUPT_ENABLE_REG1, &value);
 		if (status)
 			new_value = value | (1<<bit);
 		else
@@ -253,7 +249,7 @@ int tfa987x_irq_enable(struct tfa_device *tfa, int bit, int status)
 
 		pr_debug("value=0x%x  new_value=0x%x\n", value, new_value);
 		if (new_value != value) {
-			err = reg_write(tfa, TFA98XX_INTERRUPT_ENABLE_REG1, new_value);
+			err = tfa_reg_write(tfa, TFA98XX_INTERRUPT_ENABLE_REG1, new_value);
 			tfa->interrupt_enable[0] = new_value;
 		}
 	}
@@ -265,14 +261,14 @@ void tfa987x_irq_mask(struct tfa_device *tfa)
 {
 	enum Tfa98xx_Error err = Tfa98xx_Error_Ok;
 	pr_debug("entry [slave=0x%x]\n", tfa->slave_address);
-	err = reg_write(tfa, TFA98XX_INTERRUPT_ENABLE_REG1, 0);
+	err = tfa_reg_write(tfa, TFA98XX_INTERRUPT_ENABLE_REG1, 0);
 }
 
 void tfa987x_irq_unmask(struct tfa_device *tfa)
 {
 	enum Tfa98xx_Error err = Tfa98xx_Error_Ok;
 	pr_debug("entry [slave=0x%x]\n", tfa->slave_address);
-	err = reg_write(tfa, TFA98XX_INTERRUPT_ENABLE_REG1, tfa->interrupt_enable[0]);
+	err = tfa_reg_write(tfa, TFA98XX_INTERRUPT_ENABLE_REG1, tfa->interrupt_enable[0]);
 }
 
 int tfa987x_irq_clear(struct tfa_device *tfa, int bit)
@@ -280,7 +276,7 @@ int tfa987x_irq_clear(struct tfa_device *tfa, int bit)
 	enum Tfa98xx_Error err = Tfa98xx_Error_Ok;
 	pr_debug("[slave=0x%x] bit=0x%x\n", tfa->slave_address, bit);
 	if (tfa2_irq_all == bit) {
-		err = reg_write(tfa, TFA98XX_INTERRUPT_IN_REG1, 0xffff); /* all bits */
+		err = tfa_reg_write(tfa, TFA98XX_INTERRUPT_IN_REG1, 0xffff); /* all bits */
 	} else {
 		uint16_t value = 0, new_value = 0;
 		if (((tfa->rev & 0xff) == 0x74) && (bit >= tfa9874_irq_max)) {
@@ -292,12 +288,12 @@ int tfa987x_irq_clear(struct tfa_device *tfa, int bit)
 			return -1;
 		}
 
-		err = reg_read(tfa, TFA98XX_INTERRUPT_IN_REG1, &value);
+		err = tfa_reg_read(tfa, TFA98XX_INTERRUPT_IN_REG1, &value);
 		new_value = value | (1<<bit);
 
 		pr_debug("value=0x%x  new_value=0x%x\n", value, new_value);
 		if (new_value != value) {
-			err = reg_write(tfa, TFA98XX_INTERRUPT_IN_REG1, new_value);
+			err = tfa_reg_write(tfa, TFA98XX_INTERRUPT_IN_REG1, new_value);
 		}
 	}
 
@@ -319,18 +315,19 @@ int tfa987x_irq_handle(struct tfa_device *tfa)
 		"Clock is lost or NO clock"
 	};
 
-	err = reg_read(tfa, TFA98XX_INTERRUPT_OUT_REG1, &value);
-    pr_err("[IRQ 0x%x] Interrupt reg[40h]=0x%x\n", tfa->slave_address, value);
+	err = tfa_reg_read(tfa, TFA98XX_INTERRUPT_OUT_REG1, &value);
+	pr_err("[IRQ 0x%x] Interrupt reg[40h]=0x%x\n", tfa->slave_address, value);
 	for (offset=0; offset<tfa9873_irq_max; offset++) {
 		if ((tfa->interrupt_enable[0] & (1<<offset)) && (value & (1<<offset)))
 			pr_err("[IRQ 0x%x] %s\n", tfa->slave_address, irq_msg[offset]);
 	}
 
-	err = reg_read(tfa, 0x10, &value);
+	err = tfa_reg_read(tfa, 0x10, &value);
 	pr_err("[IRQ 0x%x] Status flag  reg[10h]=0x%x\n", tfa->slave_address, value);
 
 	return 0;
 }
+#endif
 
 /*
  *  set device info and register device ops
@@ -358,7 +355,8 @@ void tfa_set_query_info(struct tfa_device *tfa)
 	tfa->partial_enable = 0;
 	tfa->convert_dsp32 = 0;
 	tfa->sync_iv_delay = 0;
-    tfa->dynamicTDMmode = -1; /**tracking dynamic TDM setting from alsa input stream*/
+	tfa->dynamicTDMmode = -1; /**tracking dynamic TDM setting from alsa input stream*/
+	tfa->rate = 0;
 	tfa->bitwidth = -1;/**bitwdith from alsa input stream*/
 
 	/* TODO use the getfeatures() for retrieving the features [artf103523]
@@ -381,7 +379,9 @@ void tfa_set_query_info(struct tfa_device *tfa)
 		tfa->spkr_count = 1;
 		tfa->is_probus_device = 1;
 		tfa->daimap = Tfa98xx_DAI_TDM;
+#ifdef CONFIG_MACH_XIAOMI
 		tfa->ext_dsp = 0;
+#endif
 		tfa9872_ops(&tfa->dev_ops); /* register device operations */
 		break;
 	case 0x73:
@@ -392,7 +392,9 @@ void tfa_set_query_info(struct tfa_device *tfa)
 		tfa->is_probus_device = 1;
 		tfa->advance_keys_handling = 1; /*artf65038*/
 		tfa->daimap = Tfa98xx_DAI_TDM;
+#ifdef CONFIG_MACH_XIAOMI
 		tfa->ext_dsp = 0;
+#endif
 		tfa9873_ops(&tfa->dev_ops); /* register device operations */
 		break;
 	case 0x74:
@@ -402,8 +404,23 @@ void tfa_set_query_info(struct tfa_device *tfa)
 		tfa->spkr_count = 1;
 		tfa->is_probus_device = 1;
 		tfa->daimap = Tfa98xx_DAI_TDM;
+#ifdef CONFIG_MACH_XIAOMI
 		tfa->ext_dsp = 0;
+#endif
 		tfa9874_ops(&tfa->dev_ops); /* register device operations */
+		break;
+	case 0x75:
+		/* tfa9875 */
+		tfa->supportDrc = supportYes;
+		tfa->tfa_family = 2;
+		tfa->spkr_count = 1;
+		tfa->is_probus_device = 1;
+		tfa->advance_keys_handling = 1; /*artf65038*/
+		tfa->daimap = Tfa98xx_DAI_TDM;
+#ifdef CONFIG_MACH_XIAOMI
+		tfa->ext_dsp = 0;
+#endif
+		tfa9875_ops(&tfa->dev_ops); /* register device operations */
 		break;
 	case 0x78:
 		/* tfa9878 */
@@ -413,7 +430,9 @@ void tfa_set_query_info(struct tfa_device *tfa)
 		tfa->is_probus_device = 1;
 		tfa->advance_keys_handling = 1; /*artf65038*/
 		tfa->daimap = Tfa98xx_DAI_TDM;
+#ifdef CONFIG_MACH_XIAOMI
 		tfa->ext_dsp = 0;
+#endif
 		tfa9878_ops(&tfa->dev_ops); /* register device operations */
 		break;
 	case 0x88:
@@ -505,6 +524,7 @@ int tfa98xx_dev2family(int dev_type)
 	case 0x73:
 	case 0x13:
 	case 0x74:
+	case 0x75:
     case 0x78:
     case 0x94:
 		return 2;
@@ -574,6 +594,7 @@ enum Tfa98xx_DMEM tfa98xx_filter_mem(struct tfa_device *tfa, int filter_index, u
 		case 0x72:
 		case 0x73:
 		case 0x74:
+		case 0x75:
         case 0x78:
         case 0x13:
 		default:
@@ -667,8 +688,8 @@ enum Tfa98xx_Error tfa98xx_compare_features(struct tfa_device *tfa, int features
 	tfa98xx_convert_bytes2data(sizeof(bytes), bytes, &features_from_MTP[1]);
 
 	/* check if feature bits from MTP match feature bits from cnt file: */
-	get_hw_features_from_cnt(tfa, &features_from_cnt[0]);
-	get_sw_features_from_cnt(tfa, &features_from_cnt[1]);
+	tfa_get_hw_features_from_cnt(tfa, &features_from_cnt[0]);
+	tfa_get_sw_features_from_cnt(tfa, &features_from_cnt[1]);
 
 	return error;
 }
@@ -687,9 +708,15 @@ enum Tfa98xx_Error tfa98xx_dsp_reset(struct tfa_device *tfa, int state)
 /* the ops wrapper for tfa98xx_dsp_SystemStable */
 enum Tfa98xx_Error tfa98xx_dsp_system_stable(struct tfa_device *tfa, int *ready)
 {
+#ifndef CONFIG_MACH_XIAOMI
+	return (tfa->dev_ops.dsp_system_stable)(tfa, ready);
+#else
 	enum Tfa98xx_Error error = (tfa->dev_ops.dsp_system_stable)(tfa, ready);
-	pr_debug("%s error=%d  ready=%d\n", __func__, error, *ready);
+
+	pr_debug("%s error=%d ready=%d\n", __func__, error, *ready);
+
 	return error; 
+#endif
 }
 
 /* the ops wrapper for tfa98xx_dsp_system_stable */
@@ -784,7 +811,7 @@ int tfa98xx_powerswitch_is_enabled(struct tfa_device *tfa)
 	enum Tfa98xx_Error ret;
 
 	if (((tfa->rev & 0xff) == 0x13) || ((tfa->rev & 0xff) == 0x88)) {
-		ret = reg_read(tfa, 0xc6, &value);
+		ret = tfa_reg_read(tfa, 0xc6, &value);
 		if (ret != Tfa98xx_Error_Ok) {
 			return -1;
 		}
@@ -822,13 +849,13 @@ enum Tfa98xx_Error tfa98xx_dsp_get_memory(struct tfa_device *tfa, int memoryType
 	msg[nr++] = length & 0xff;
 
 	/* send msg */
-	error = dsp_msg(tfa, nr, (char *)msg);
+	error = tfa_dsp_msg(tfa, nr, (char *)msg);
 
 	if (error != Tfa98xx_Error_Ok)
 		return error;
 
 	/* read the data from the device (length * 3) */
-	error = dsp_msg_read(tfa, length * 3, bytes);
+	error = tfa_dsp_msg_read(tfa, length * 3, bytes);
 
 	return error;
 }
@@ -861,7 +888,7 @@ enum Tfa98xx_Error tfa98xx_dsp_set_memory(struct tfa_device *tfa, int memoryType
 	msg[nr++] = value & 0xff;
 
 	/* send msg */
-	error = dsp_msg(tfa, nr, (char *)msg);
+	error = tfa_dsp_msg(tfa, nr, (char *)msg);
 
 	return error;
 }
@@ -907,12 +934,12 @@ enum Tfa98xx_Error tfa98xx_get_mtp(struct tfa_device *tfa, uint16_t *value)
 void tfa98xx_key2(struct tfa_device *tfa, int lock)
 {
 	/* unhide lock registers */
-	reg_write(tfa, (tfa->tfa_family == 1) ? 0x40 : 0x0F, 0x5A6B);
+	tfa_reg_write(tfa, (tfa->tfa_family == 1) ? 0x40 : 0x0F, 0x5A6B);
 	/* lock/unlock key2 MTPK */
 	TFA_WRITE_REG(tfa, MTPKEY2, lock ? 0 : 0x5A);
 	/* unhide lock registers */
 	if (!tfa->advance_keys_handling) /*artf65038*/
-		reg_write(tfa, (tfa->tfa_family == 1) ? 0x40 : 0x0F, 0);
+		tfa_reg_write(tfa, (tfa->tfa_family == 1) ? 0x40 : 0x0F, 0);
 }
 void tfa2_manual_mtp_cpy(struct tfa_device *tfa, uint16_t reg_row_to_keep, uint16_t reg_row_to_set, uint8_t row)///MCH_TO_TEST
 {
@@ -927,18 +954,18 @@ void tfa2_manual_mtp_cpy(struct tfa_device *tfa, uint16_t reg_row_to_keep, uint1
 			pr_debug("FAIM enabled (err:%d).\n", error);
 		}
 	}
-	reg_read(tfa, (unsigned char)reg_row_to_keep, &value);
+	tfa_reg_read(tfa, (unsigned char)reg_row_to_keep, &value);
 	if (!row)
 	{
-		reg_write(tfa, 0xA7, value);
-		reg_write(tfa, 0xA8, reg_row_to_set);
+		tfa_reg_write(tfa, 0xA7, value);
+		tfa_reg_write(tfa, 0xA8, reg_row_to_set);
 	}
 	else
 	{
-		reg_write(tfa, 0xA7, reg_row_to_set);
-		reg_write(tfa, 0xA8, value);
+		tfa_reg_write(tfa, 0xA7, reg_row_to_set);
+		tfa_reg_write(tfa, 0xA8, value);
 	}
-	reg_write(tfa, 0xA3, 0x10 | row);
+	tfa_reg_write(tfa, 0xA3, 0x10 | row);
 	if (tfa->is_probus_device)
 	{
 		/* Assure FAIM is enabled (enable it when neccesery) */
@@ -1265,7 +1292,7 @@ tfa98xx_check_ic_rom_version(struct tfa_device *tfa, const unsigned char patchhe
 		}
 		/* read register to check the correct ROM version */
 		if (error == Tfa98xx_Error_Ok) {
-			error = mem_read(tfa, checkaddress, 1, &value);
+			error = tfa_mem_read(tfa, checkaddress, 1, &value);
 		}
 		if (error == Tfa98xx_Error_Ok) {
 			if (value != checkvalue) {
@@ -1296,7 +1323,11 @@ enum Tfa98xx_Error
 	tfa_dsp_patch(struct tfa_device *tfa, int patchLength,
 		const unsigned char *patchBytes)
 {
+#ifndef CONFIG_MACH_XIAOMI
+	enum Tfa98xx_Error error;
+#else
 	enum Tfa98xx_Error error = Tfa98xx_Error_Ok;
+#endif
 	int status;
 	if (tfa->in_use == 0)
 		return Tfa98xx_Error_NotOpen;
@@ -1308,7 +1339,17 @@ enum Tfa98xx_Error
 	if (Tfa98xx_Error_Ok != error) {
 		return error;
 	}
-	
+#ifndef CONFIG_MACH_XIAOMI
+	tfa98xx_dsp_system_stable(tfa, &status);
+	if (!status)
+		return Tfa98xx_Error_NoClock; // Only test when we have a clock.
+			/******MCH_TO_TEST**************/
+	if (error == Tfa98xx_Error_Ok) {
+		error = tfaRunColdboot(tfa, 1);
+		if (error)
+			return Tfa98xx_Error_DSP_not_running;
+	}
+#else
 	/* for non-dsp solution, we don't need to check ACS. */
 	if (tfa->is_probus_device == 0) {	
 		tfa98xx_dsp_system_stable(tfa, &status);
@@ -1326,6 +1367,8 @@ enum Tfa98xx_Error
 		}
 		/**************************/
 	}
+#endif
+	/**************************/
 	error =
 		tfa98xx_process_patch_file(tfa, patchLength - PATCH_HEADER_LENGTH,
 			patchBytes + PATCH_HEADER_LENGTH);
@@ -1422,7 +1465,7 @@ void tfa98xx_convert_data2bytes(int num_data, const int data[],
  */
 
 
- /* write dsp messages in function tfa_dsp_msg() */
+ /* write dsp messages in function tfa_dsp_msg_rpc() */
  /*  note the 'old' write_parameter() was more efficient because all i2c was in one burst transaction */
 
  //TODO properly handle bitfields: state should be restored! (now it will change eg dmesg field to xmem)
@@ -1530,7 +1573,7 @@ enum Tfa98xx_Error tfa_dsp_msg_write_id(struct tfa_device *tfa, int length, cons
 }
 
 /*
-* status function used by tfa_dsp_msg() to retrieve command/msg status:
+* status function used by tfa_dsp_msg_rpc() to retrieve command/msg status:
 * return a <0 status of the DSP did not ACK.
 */
 enum Tfa98xx_Error tfa_dsp_msg_status(struct tfa_device *tfa, int *pRpcStatus)
@@ -1597,7 +1640,7 @@ const char* tfa98xx_get_i2c_status_id_string(int status)
 	return p_id_str;
 }
 
-enum Tfa98xx_Error tfa_dsp_msg_read(struct tfa_device *tfa, int length, unsigned char *bytes)
+enum Tfa98xx_Error tfa_dsp_msg_read_rpc(struct tfa_device *tfa, int length, unsigned char *bytes)
 {
 	enum Tfa98xx_Error error = Tfa98xx_Error_Ok;
 	int burst_size;		/* number of words per burst size */
@@ -1630,11 +1673,15 @@ enum Tfa98xx_Error tfa_dsp_msg_read(struct tfa_device *tfa, int length, unsigned
 	return error;
 }
 
-enum Tfa98xx_Error dsp_msg(struct tfa_device *tfa, int length24, const char *buf24)
+enum Tfa98xx_Error tfa_dsp_msg(struct tfa_device *tfa, int length24, const char *buf24)
 {
 	enum Tfa98xx_Error error = Tfa98xx_Error_Ok;
 	int lastmessage = 0;
+#ifndef CONFIG_MACH_XIAOMI
+	uint8_t *blob;
+#else
 	uint8_t *blob = NULL;
+#endif
 	int i;
 	int *intbuf = NULL;
 	char* buf = (char *)buf24;
@@ -1645,10 +1692,11 @@ enum Tfa98xx_Error dsp_msg(struct tfa_device *tfa, int length24, const char *buf
 
 		length = 4 * length24 / 3;
 		intbuf = kmem_cache_alloc(tfa->cachep, GFP_KERNEL);
-		if (!intbuf) {
-			pr_err("%s: kmem alloc fail! \n", __func__);
+#ifdef CONFIG_MACH_XIAOMI
+		if (!intbuf)
 			return Tfa98xx_Error_Fail;
-		}
+#endif
+
 		buf = (char *)intbuf;
 
 		/* convert 24 bit DSP messages to a 32 bit integer */
@@ -1664,10 +1712,12 @@ enum Tfa98xx_Error dsp_msg(struct tfa_device *tfa, int length24, const char *buf
 		/* Creating the multi-msg */
 		error = tfa_tib_dsp_msgmulti(tfa, length, buf);
 		if (error == Tfa98xx_Error_Fail) {
+#ifdef CONFIG_MACH_XIAOMI
 			if (intbuf) {
 				kmem_cache_free(tfa->cachep, intbuf);
 				intbuf = NULL;
 			}
+#endif
 			return Tfa98xx_Error_Fail;
 		}
 
@@ -1683,7 +1733,7 @@ enum Tfa98xx_Error dsp_msg(struct tfa_device *tfa, int length24, const char *buf
 			}
 			if (tfa->has_msg == 0) /* via i2c */ {
 				/* Send tot the target selected */
-				error = (tfa->dev_ops.dsp_msg)(tfa, len, (const char*)blob);
+				error = (tfa->dev_ops.tfa_dsp_msg)(tfa, len, (const char*)blob);
 			}
 			else { /* via msg hal */
 				error = tfa98xx_write_dsp(tfa, len, (const char*)blob);
@@ -1693,10 +1743,12 @@ enum Tfa98xx_Error dsp_msg(struct tfa_device *tfa, int length24, const char *buf
 			/* (b) add the current DSP message to a new multi-message */
 			error = tfa_tib_dsp_msgmulti(tfa, length, buf);
 			if (error == Tfa98xx_Error_Fail) {
+#ifdef CONFIG_MACH_XIAOMI
 				if (intbuf) {
 					kmem_cache_free(tfa->cachep, intbuf);
 					intbuf = NULL;
 				}
+#endif
 				return Tfa98xx_Error_Fail;
 			}
 		}
@@ -1715,7 +1767,7 @@ enum Tfa98xx_Error dsp_msg(struct tfa_device *tfa, int length24, const char *buf
 
 			if (tfa->has_msg == 0) /* via i2c */ {
 				/* Send tot the target selected */
-				error = (tfa->dev_ops.dsp_msg)(tfa, length, (const char*)blob);
+				error = (tfa->dev_ops.tfa_dsp_msg)(tfa, length, (const char*)blob);
 			}
 			else { /* via msg hal */
 				error = tfa98xx_write_dsp(tfa, length, (const char*)blob);
@@ -1727,7 +1779,7 @@ enum Tfa98xx_Error dsp_msg(struct tfa_device *tfa, int length24, const char *buf
 	}
 	else {
 		if (tfa->has_msg == 0) /* via i2c */ {
-			error = (tfa->dev_ops.dsp_msg)(tfa, length, buf);
+			error = (tfa->dev_ops.tfa_dsp_msg)(tfa, length, buf);
 		}
 		else { /* via msg hal */
 			error = tfa98xx_write_dsp(tfa, length, (const char*)buf);
@@ -1747,13 +1799,15 @@ enum Tfa98xx_Error dsp_msg(struct tfa_device *tfa, int length24, const char *buf
 
 	if (tfa->convert_dsp32) {
 		kmem_cache_free(tfa->cachep, intbuf);
+#ifdef CONFIG_MACH_XIAOMI
 		intbuf = NULL;
+#endif
 	}
 
 	return error;
 }
 
-enum Tfa98xx_Error dsp_msg_read(struct tfa_device *tfa, int length24, unsigned char *bytes24)
+enum Tfa98xx_Error tfa_dsp_msg_read(struct tfa_device *tfa, int length24, unsigned char *bytes24)
 {
 	enum Tfa98xx_Error error = Tfa98xx_Error_Ok;
 	int i;
@@ -1763,14 +1817,14 @@ enum Tfa98xx_Error dsp_msg_read(struct tfa_device *tfa, int length24, unsigned c
 	if (tfa->convert_dsp32) {
 		length = 4 * length24 / 3;
 		bytes = kmem_cache_alloc(tfa->cachep, GFP_KERNEL);
-		if (!bytes) {
-			pr_err("%s: kmem alloc for bytes fail \n", __func__);
+#ifdef CONFIG_MACH_XIAOMI
+		if (!bytes)
 			return Tfa98xx_Error_Fail;
-		}
+#endif
 	}
 
 	if (tfa->has_msg == 0) /* via i2c */ {
-		error = (tfa->dev_ops.dsp_msg_read)(tfa, length, bytes);
+		error = (tfa->dev_ops.tfa_dsp_msg_read)(tfa, length, bytes);
 	}
 	else { /* via msg hal */
 		error = tfa98xx_read_dsp(tfa, length, bytes);
@@ -1803,44 +1857,44 @@ enum Tfa98xx_Error dsp_msg_read(struct tfa_device *tfa, int length24, unsigned c
 	return error;
 }
 
-enum Tfa98xx_Error reg_read(struct tfa_device *tfa, unsigned char subaddress, unsigned short *value)
+enum Tfa98xx_Error tfa_reg_read(struct tfa_device *tfa, unsigned char subaddress, unsigned short *value)
 {
 	enum Tfa98xx_Error error;
 
-	error = (tfa->dev_ops.reg_read)(tfa, subaddress, value);
+	error = (tfa->dev_ops.tfa_reg_read)(tfa, subaddress, value);
 	if (error != Tfa98xx_Error_Ok)
 		error = (enum Tfa98xx_Error) (error + Tfa98xx_Error_RpcBase); /* Get actual error code from softDSP */
 
 	return error;
 }
 
-enum Tfa98xx_Error reg_write(struct tfa_device *tfa, unsigned char subaddress, unsigned short value)
+enum Tfa98xx_Error tfa_reg_write(struct tfa_device *tfa, unsigned char subaddress, unsigned short value)
 {
 	enum Tfa98xx_Error error;
 
-	error = (tfa->dev_ops.reg_write)(tfa, subaddress, value);
+	error = (tfa->dev_ops.tfa_reg_write)(tfa, subaddress, value);
 	if (error != Tfa98xx_Error_Ok)
 		error = (enum Tfa98xx_Error) (error + Tfa98xx_Error_RpcBase); /* Get actual error code from softDSP */
 
 	return error;
 }
 
-enum Tfa98xx_Error mem_read(struct tfa_device *tfa, unsigned int start_offset, int num_words, int *pValues)
+enum Tfa98xx_Error tfa_mem_read(struct tfa_device *tfa, unsigned int start_offset, int num_words, int *pValues)
 {
 	enum Tfa98xx_Error error;
 
-	error = (tfa->dev_ops.mem_read)(tfa, start_offset, num_words, pValues);
+	error = (tfa->dev_ops.tfa_mem_read)(tfa, start_offset, num_words, pValues);
 	if (error != Tfa98xx_Error_Ok)
 		error = (enum Tfa98xx_Error) (error + Tfa98xx_Error_RpcBase); /* Get actual error code from softDSP */
 
 	return error;
 }
 
-enum Tfa98xx_Error mem_write(struct tfa_device *tfa, unsigned short address, int value, int memtype)
+enum Tfa98xx_Error tfa_mem_write(struct tfa_device *tfa, unsigned short address, int value, int memtype)
 {
 	enum Tfa98xx_Error error;
 
-	error = (tfa->dev_ops.mem_write)(tfa, address, value, memtype);
+	error = (tfa->dev_ops.tfa_mem_write)(tfa, address, value, memtype);
 	if (error != Tfa98xx_Error_Ok)
 		error = (enum Tfa98xx_Error) (error + Tfa98xx_Error_RpcBase); /* Get actual error code from softDSP */
 
@@ -1854,7 +1908,7 @@ enum Tfa98xx_Error mem_write(struct tfa_device *tfa, unsigned short address, int
  *  The functions will return immediately and do not not wait for DSP reponse.
  */
 #define MAX_WORDS (300)
-enum Tfa98xx_Error tfa_dsp_msg(struct tfa_device *tfa, int length, const char *buf)
+enum Tfa98xx_Error tfa_dsp_msg_rpc(struct tfa_device *tfa, int length, const char *buf)
 {
 	enum Tfa98xx_Error error;
 	int tries, rpc_status = Tfa98xx_I2C_Req_Done;
@@ -2078,12 +2132,12 @@ enum Tfa98xx_Error
 	tfa98xx_convert_data2bytes(BIQUAD_COEFF_SIZE, coeff_buffer, &bytes[nr]);
 	nr += BIQUAD_COEFF_SIZE * 3;
 
-	error = dsp_msg(tfa, nr, (char *)bytes);
+	error = tfa_dsp_msg(tfa, nr, (char *)bytes);
 
 	return error;
 }
 
-/* wrapper for dsp_msg that adds opcode */
+/* wrapper for tfa_dsp_msg that adds opcode */
 enum Tfa98xx_Error tfa_dsp_cmd_id_write(struct tfa_device *tfa,
 	unsigned char module_id,
 	unsigned char param_id, int num_bytes,
@@ -2104,14 +2158,14 @@ enum Tfa98xx_Error tfa_dsp_cmd_id_write(struct tfa_device *tfa,
 	memcpy(&buffer[nr], data, num_bytes);
 	nr += num_bytes;
 
-	error = dsp_msg(tfa, nr, (char *)buffer);
+	error = tfa_dsp_msg(tfa, nr, (char *)buffer);
 
 	kmem_cache_free(tfa->cachep, buffer);
 
 	return error;
 }
 
-/* wrapper for dsp_msg that adds opcode */
+/* wrapper for tfa_dsp_msg that adds opcode */
 /* this is as the former tfa98xx_dsp_get_param() */
 enum Tfa98xx_Error tfa_dsp_cmd_id_write_read(struct tfa_device *tfa,
 	unsigned char module_id,
@@ -2140,12 +2194,12 @@ enum Tfa98xx_Error tfa_dsp_cmd_id_write_read(struct tfa_device *tfa,
 	buffer[nr++] = module_id + 128;
 	buffer[nr++] = param_id;
 
-	error = dsp_msg(tfa, nr, (char *)buffer);
+	error = tfa_dsp_msg(tfa, nr, (char *)buffer);
 	if (error != Tfa98xx_Error_Ok)
 		return error;
 
 	/* read the data from the dsp */
-	error = dsp_msg_read(tfa, num_bytes, data);
+	error = tfa_dsp_msg_read(tfa, num_bytes, data);
 	return error;
 }
 
@@ -2158,21 +2212,27 @@ enum Tfa98xx_Error tfa_dsp_cmd_id_coefs(struct tfa_device *tfa,
 	enum Tfa98xx_Error error;
 	unsigned char buffer[2 * 3];
 	int nr = 0;
+	char api_ver[4] = { 0 };
 
+	//Get rev id
+	error = tfa_dsp_cmd_id_write_read(tfa, MODULE_FRAMEWORK, FW_PAR_ID_GET_API_VERSION, 3, api_ver);
 	buffer[nr++] = tfa->spkr_select;
 	buffer[nr++] = module_id + 128;
 	buffer[nr++] = param_id;
 
-	buffer[nr++] = 0;
-	buffer[nr++] = 0;
-	buffer[nr++] = 0;
+	if ((api_ver[1] < TFA_API_SBFW_8_09_00) || (api_ver[0] == 2)) { //(api_ver[0] == 2) is for 88 device
 
-	error = dsp_msg(tfa, nr, (char *)buffer);
+		buffer[nr++] = 0;
+		buffer[nr++] = 0;
+		buffer[nr++] = 0;
+	}
+
+	error = tfa_dsp_msg(tfa, nr, (char *)buffer);
 	if (error != Tfa98xx_Error_Ok)
 		return error;
 
 	/* read the data from the dsp */
-	error = dsp_msg_read(tfa, num_bytes, data);
+	error = tfa_dsp_msg_read(tfa, num_bytes, data);
 
 	return error;
 }
@@ -2195,12 +2255,12 @@ enum Tfa98xx_Error tfa_dsp_cmd_id_MBDrc_dynamics(struct tfa_device *tfa,
 	buffer[nr++] = 0;
 	buffer[nr++] = (unsigned char)index_subband;
 
-	error = dsp_msg(tfa, nr, (char *)buffer);
+	error = tfa_dsp_msg(tfa, nr, (char *)buffer);
 	if (error != Tfa98xx_Error_Ok)
 		return error;
 
 	/* read the data from the dsp */
-	error = dsp_msg_read(tfa, num_bytes, data);
+	error = tfa_dsp_msg_read(tfa, num_bytes, data);
 
 	return error;
 }
@@ -2243,7 +2303,7 @@ enum Tfa98xx_Error
 			int status;
 			tfa98xx_dsp_system_stable(tfa, &status);
 			if (!status) {
-				get_hw_features_from_cnt(tfa, features);
+				tfa_get_hw_features_from_cnt(tfa, features);
 				/* skip reading MTP: */
 				return (*features == -1) ? Tfa98xx_Error_Fail : Tfa98xx_Error_Ok;
 			}
@@ -2276,7 +2336,7 @@ enum Tfa98xx_Error
 			int status;
 			tfa98xx_dsp_system_stable(tfa, &status);
 			if (!status) {
-				get_sw_features_from_cnt(tfa, features);
+				tfa_get_sw_features_from_cnt(tfa, features);
 				/* skip reading MTP: */
 				return (features[0] == -1) ? Tfa98xx_Error_Fail : Tfa98xx_Error_Ok;
 			}
@@ -2535,7 +2595,7 @@ int tfa_set_bf(struct tfa_device *tfa, const uint16_t bf, const uint16_t value)
 	uint8_t pos = (bf >> 4) & 0x0f;
 	uint8_t address = (bf >> 8) & 0xff;
 
-	err = reg_read(tfa, address, &regvalue);
+	err = tfa_reg_read(tfa, address, &regvalue);
 	if (err) {
 		pr_err("Error getting bf :%d \n", -err);
 		return -err;
@@ -2548,7 +2608,7 @@ int tfa_set_bf(struct tfa_device *tfa, const uint16_t bf, const uint16_t value)
 
 	/* Only write when the current register value is not the same as the new value */
 	if (oldvalue != regvalue) {
-		err = reg_write(tfa, address, regvalue);
+		err = tfa_reg_write(tfa, address, regvalue);
 		if (err) {
 			pr_err("Error setting bf :%d \n", -err);
 			return -err;
@@ -2573,7 +2633,7 @@ int tfa_set_bf_volatile(struct tfa_device *tfa, const uint16_t bf, const uint16_
 	uint8_t pos = (bf >> 4) & 0x0f;
 	uint8_t address = (bf >> 8) & 0xff;
 
-	err = reg_read(tfa, address, &regvalue);
+	err = tfa_reg_read(tfa, address, &regvalue);
 	if (err) {
 		pr_err("Error getting bf :%d \n", -err);
 		return -err;
@@ -2583,7 +2643,7 @@ int tfa_set_bf_volatile(struct tfa_device *tfa, const uint16_t bf, const uint16_
 	regvalue &= ~msk;
 	regvalue |= value << pos;
 
-	err = reg_write(tfa, address, regvalue);
+	err = tfa_reg_write(tfa, address, regvalue);
 	if (err) {
 		pr_err("Error setting bf :%d \n", -err);
 		return -err;
@@ -2608,7 +2668,7 @@ int tfa_get_bf(struct tfa_device *tfa, const uint16_t bf)
 	uint8_t pos = (bf >> 4) & 0x0f;
 	uint8_t address = (bf >> 8) & 0xff;
 
-	err = reg_read(tfa, address, &regvalue);
+	err = tfa_reg_read(tfa, address, &regvalue);
 	if (err) {
 		pr_err("Error getting bf :%d \n", -err);
 		return -err;
@@ -2672,7 +2732,7 @@ int tfa_write_reg(struct tfa_device *tfa, const uint16_t bf, const uint16_t reg_
 	/* bitfield enum - 8..15 : address */
 	uint8_t address = (bf >> 8) & 0xff;
 
-	err = reg_write(tfa, address, reg_value);
+	err = tfa_reg_write(tfa, address, reg_value);
 	if (err)
 		return -err;
 
@@ -2687,7 +2747,7 @@ int tfa_read_reg(struct tfa_device *tfa, const uint16_t bf)
 	/* bitfield enum - 8..15 : address */
 	uint8_t address = (bf >> 8) & 0xff;
 
-	err = reg_read(tfa, address, &regvalue);
+	err = tfa_reg_read(tfa, address, &regvalue);
 	if (err)
 		return -err;
 
@@ -2749,22 +2809,21 @@ static enum Tfa98xx_Error tfa98xx_aec_output(struct tfa_device *tfa, int enable)
  * Print the current state of the hardware manager
  * Device manager status information, man_state from TFA9888_N1B_I2C_regmap_V12
  */
-int is_94_N2_device(struct tfa_device *tfa)
+int tfa_is_94_N2_device(struct tfa_device *tfa)
 {
 	return ((((tfa->rev) & 0xff) == 0x94) && (((tfa->rev >> 8) & 0xff) > 0x1a));
 }
-enum Tfa98xx_Error show_current_state(struct tfa_device *tfa)
+
+enum Tfa98xx_Error tfa_show_current_state(struct tfa_device *tfa)
 {
 	enum Tfa98xx_Error err = Tfa98xx_Error_Ok;
 	int manstate = -1;
 
-	if (tfa->tfa_family == 2
-#ifndef __KERNEL__
-	 && tfa->verbose
-#endif	
-	) {
-		if (is_94_N2_device(tfa))
+	if (tfa->tfa_family == 2 && tfa->verbose) {
+		if (tfa_is_94_N2_device(tfa))
 			manstate = tfa_get_bf(tfa, TFA9894N2_BF_MANSTATE);
+		else if ((tfa->rev & 0xff) == 0x75)
+			manstate = tfa_get_bf(tfa, TFA9875_BF_MANSTATE);
 		else
 			manstate = TFA_GET_BF(tfa, MANSTATE);
 		if (manstate < 0)
@@ -2816,14 +2875,25 @@ enum Tfa98xx_Error tfaGetFwApiVersion(struct tfa_device *tfa, unsigned char *pFi
 		return Tfa98xx_Error_Bad_Parameter;
 	if (!tfa->is_probus_device)
 	{
-		err = mem_read(tfa, FW_VAR_API_VERSION, 1, (int *)pFirmwareVersion);
+		int buffer;
+		err = tfa_mem_read(tfa, FW_VAR_API_VERSION, 1, (int *)(&buffer));
 		if (err) {
 			pr_debug("%s Error: Unable to get API Version from DSP \n", __FUNCTION__);
 			return err;
 		}
+		pFirmwareVersion[0] = (buffer >> 16) & 0xff;
+		pFirmwareVersion[1] = (buffer >> 8) & 0xff;
+		if ((pFirmwareVersion[0] != 2) && (pFirmwareVersion[1] >= 33)) {
+			pFirmwareVersion[2] = (buffer >> 3) & 0x1F;
+			pFirmwareVersion[3] = (buffer) & 0x07;
+		} else {
+			pFirmwareVersion[2] = (buffer >> 6) & 0x03;
+			pFirmwareVersion[3] = (buffer) & 0x3f;
+		}
 	}
 	else
 	{
+		unsigned char buffer[4 * 3] = { 0 };
 		cmd_len = 0x03;
 
 		/* GetAPI: Command is 0x00 0x80 0xFE */
@@ -2839,10 +2909,34 @@ enum Tfa98xx_Error tfaGetFwApiVersion(struct tfa_device *tfa, unsigned char *pFi
 		if (err == 0)
 		{
 			res_len = 3;
-			err = tfa98xx_read_dsp(tfa, res_len, (unsigned char *)pFirmwareVersion);
+			err = tfa98xx_read_dsp(tfa, res_len, (unsigned char *)buffer);
 
 		}
+
+		/* Split 3rd byte into two seperate ITF version fields (3rd field and 4th field) */
+		pFirmwareVersion[0] = (buffer[0]);
+		pFirmwareVersion[1] = (buffer[1]);
+		if ((pFirmwareVersion[0] != 2) && (pFirmwareVersion[1] >= 33)) {
+			pFirmwareVersion[3] = (buffer[2]) & 0x07;
+			pFirmwareVersion[2] = (buffer[2] >> 3) & 0x1F;
+		} else {
+			pFirmwareVersion[3] = (buffer[2]) & 0x3f;
+			pFirmwareVersion[2] = (buffer[2] >> 6) & 0x03;
+		}
 	}
+
+	if (1 == tfa->cnt->ndev) {
+		/* Mono configuration */
+		/* Workaround for FW 8.9.0 (FW API x.31.y.z) & above. 
+		   Firmware cannot return the 4th field (mono/stereo) of ITF version correctly, as it requires 
+		   certain set of messages to be sent before it can detect itself as a mono/stereo configuration.
+		   Hence, HostSDK need to handle this at system level */
+		if ((pFirmwareVersion[0] == 8) && (pFirmwareVersion[1] >= 31)) {
+			pFirmwareVersion[3] = 1;
+		}
+	}
+
+	
 	return err;
 
 }
@@ -2871,10 +2965,9 @@ enum Tfa98xx_Error tfaRunSpeakerBoost(struct tfa_device *tfa, int force, int pro
 	if (value) {
 		/* Run startup and write all files */
 		err = tfaRunSpeakerStartup(tfa, force, profile);
-		if ( err ) {
-			pr_err("tfaRunSpeakerStartup error  %d\n", err);
+		if (err)
 			return err;
-		}
+
 		/* Save the current profile and set the vstep to 0 */
 		/* This needs to be overwriten even in CF bypass */
 		tfa_dev_set_swprof(tfa, (unsigned short)profile);
@@ -2891,27 +2984,22 @@ enum Tfa98xx_Error tfaRunSpeakerBoost(struct tfa_device *tfa, int force, int pro
 enum Tfa98xx_Error tfaRunSpeakerStartup(struct tfa_device *tfa, int force, int profile)
 {
 	enum Tfa98xx_Error err = Tfa98xx_Error_Ok;
-	pr_debug("%s  force=%d  profile=%d\n", __func__, force, profile);
-	if ( !force ) { // in case of force CF already runnning
+
+	if (!force) { // in case of force CF already runnning
 		err = tfaRunStartup(tfa, profile);
 		PRINT_ASSERT(err);
-		if ( err ) {
-			pr_err("tfaRunStartup failed %d\n", err);
+		if (err)
 			return err;
-		}
+
 		/* Startup with CF in bypass then return here */
-		if (tfa_cf_enabled(tfa) == 0) {
-			pr_err("tfa_cf_enabled==0\n");
+		if (tfa_cf_enabled(tfa) == 0)
 			return err;
-		}
 
 		/* respond to external DSP: -1:none, 0:no_dsp, 1:cold, 2:warm */
 		if (tfa->ext_dsp == -1) {
 			err = tfaRunStartDSP(tfa);
-			if ( err ) {
-				pr_err("tfaRunStartup failed %d\n", err);
+			if (err)
 				return err;
-			}
 		}
 	}
 
@@ -2981,7 +3069,7 @@ enum Tfa98xx_Error tfaRunColdboot(struct tfa_device *tfa, int state)
 	/* repeat set ACS bit until set as requested */
 	while (state != TFA_GET_BF(tfa, ACS)) {
 		/* set colstarted in CF_CONTROL to force ACS */
-		err = mem_write(tfa, CF_CONTROL, state, Tfa98xx_DMEM_IOMEM);
+		err = tfa_mem_write(tfa, CF_CONTROL, state, Tfa98xx_DMEM_IOMEM);
 		PRINT_ASSERT(err);
 
 		if (tries-- == 0) {
@@ -3018,7 +3106,7 @@ enum Tfa98xx_Error tfaRunStartDSP(struct tfa_device *tfa)
 	}
 
 	/* Clear count_boot, should be reset to 0 before the DSP reset is released */
-	err = mem_write(tfa, 512, 0, Tfa98xx_DMEM_XMEM);
+	err = tfa_mem_write(tfa, 512, 0, Tfa98xx_DMEM_XMEM);
 	PRINT_ASSERT(err);
 
 	/* Reset DSP once for sure after initializing */
@@ -3091,11 +3179,17 @@ enum Tfa98xx_Error tfaRunStartup(struct tfa_device *tfa, int profile)
 
 	/* Factory trimming for the Boost converter */
 	tfa98xx_factory_trimmer(tfa);
-
+#ifdef __KERNEL__
+#if 0
+	/* Control for PWM phase shift */
+	if (tfa->bitwidth == 24 && tfa->rate == 16)/*TFA9875-240*/
+		tfa98xx_set_phase_shift(tfa);
+#endif
+#endif
 	/* Go to the initCF state */
 	tfa_dev_set_state(tfa, TFA_STATE_INIT_CF, strstr(tfaContProfileName(tfa->cnt, tfa->dev_idx, profile), ".cal") != NULL);
 
-	err = show_current_state(tfa);
+	err = tfa_show_current_state(tfa);
 
 	return err;
 }
@@ -3184,8 +3278,8 @@ static void individual_calibration_results(struct tfa_device *tfa)
 	int value_P, value_S;
 
 	/* Read the calibration result in xmem (529=primary channel) (530=secondary channel) */
-	mem_read(tfa, 529, 1, &value_P);
-	mem_read(tfa, 530, 1, &value_S);
+	tfa_mem_read(tfa, 529, 1, &value_P);
+	tfa_mem_read(tfa, 530, 1, &value_S);
 
 	if (value_P != 1 && value_S != 1)
 		pr_debug("Calibration failed on both channels! \n");
@@ -3252,7 +3346,7 @@ enum Tfa98xx_Error tfaRunWaitCalibration(struct tfa_device *tfa, int *calibrateD
 		* calibrateDone = 1 means calibration done
 		*/
 	while ((*calibrateDone != 1) && (tries < TFA98XX_API_WAITRESULT_NTRIES)) {
-		err = mem_read(tfa, TFA_FW_XMEM_CALIBRATION_DONE, 1, calibrateDone);
+		err = tfa_mem_read(tfa, TFA_FW_XMEM_CALIBRATION_DONE, 1, calibrateDone);
 		if (*calibrateDone == -1)
 			break;
 		tries++;
@@ -3295,26 +3389,25 @@ enum tfa_error tfa_dev_start(struct tfa_device *tfa, int next_profile, int vstep
 	enum Tfa98xx_Error err = Tfa98xx_Error_Ok;
 	int active_profile = -1;
 
-	pr_debug("entry...\n");
 	/* Get currentprofile */
 	active_profile = tfa_dev_get_swprof(tfa);
 	if (active_profile == 0xff)
 		active_profile = -1;
 
 	/* TfaRun_SpeakerBoost implies un-mute */
-	pr_info("Active_profile:%s, next_profile:%s\n",
+	pr_debug("Active_profile:%s, next_profile:%s\n",
 		tfaContProfileName(tfa->cnt, tfa->dev_idx, active_profile),
 		tfaContProfileName(tfa->cnt, tfa->dev_idx, next_profile));
 
-	err = show_current_state(tfa);
-	
+	err = tfa_show_current_state(tfa);
+
+#ifdef CONFIG_MACH_XIAOMI
 	/* If the profile contains the .standby suffix go to powerdown
 	 * else we should be in operating state
 	 */
-	if (strstr(tfaContProfileName(tfa->cnt, tfa->dev_idx, next_profile), ".standby") != NULL) {
-		pr_info("This is  .standby profile, we do need power up device 0x%x\n", tfa->slave_address);
+	if (strstr(tfaContProfileName(tfa->cnt, tfa->dev_idx, next_profile), ".standby") != NULL)
 		goto error_exit;
-	}
+#endif
 
 	if (tfa->tfa_family == 1) { /* TODO move this to ini file */
 		/* Enable I2S output on TFA1 devices without TDM */
@@ -3327,60 +3420,64 @@ enum tfa_error tfa_dev_start(struct tfa_device *tfa, int next_profile, int vstep
 #ifndef __KERNEL__
 		tfadsp_fw_start(tfa, next_profile, vstep);
 #endif /* __KERNEL__ */
-	}
-	else {
+	} else {
 		/* Check if we need coldstart or ACS is set */
-		err = show_current_state(tfa);
-		err = tfaRunSpeakerBoost(tfa, 0, next_profile);
-		if ( err != Tfa98xx_Error_Ok) {
-			pr_err("RunSpeakerBoost failed  %d\n", err);
-			goto error_exit;
-		}
-		/* Make sure internal oscillator is running for DSP devices (non-dsp and max1 this is no-op) */
-		tfa98xx_set_osc_powerdown(tfa, 0);
-		pr_debug("[goodix] %s after osc_powerdown\n", __func__);
-
-		/* Go to the Operating state */
-#ifdef TFA_STEREO_SOLUTION
-        tfa_dev_set_state(tfa, TFA_STATE_OPERATING | TFA_STATE_MUTE, 0);
-#else
-        tfa_dev_set_state(tfa, TFA_STATE_OPERATING, 0);
+#ifdef CONFIG_MACH_XIAOMI
+		err = tfa_show_current_state(tfa);
 #endif
-		pr_debug("[goodix] %s after implemented tfa_dev_set_state()\n", __func__);
+		err = tfaRunSpeakerBoost(tfa, 0, next_profile);
+		if (err != Tfa98xx_Error_Ok)
+			goto error_exit;
+
+		if (strstr(tfaContProfileName(tfa->cnt, tfa->dev_idx, next_profile), ".standby") != NULL) {
+			pr_info("Skip powering on device, in standby profile!\n");
+		} else {
+			/* Make sure internal oscillator is running for DSP devices (non-dsp and max1 this is no-op) */
+			tfa98xx_set_osc_powerdown(tfa, 0);
+
+			/* Go to the Operating state */
+#ifdef TFA_STEREO_SOLUTION
+			tfa_dev_set_state(tfa, TFA_STATE_OPERATING | TFA_STATE_MUTE, 0);
+#else
+			tfa_dev_set_state(tfa, TFA_STATE_OPERATING, 0);
+#endif
+		}
 	}
 	active_profile = tfa_dev_get_swprof(tfa);
 
 	/* Profile switching */
 	if ((next_profile != active_profile && active_profile >= 0)) {
 		err = tfaContWriteProfile(tfa, next_profile, vstep);
-		if (err!=Tfa98xx_Error_Ok) {
-			pr_err("tfaContWriteProfile failed  %d\n", err);
+		if (err != Tfa98xx_Error_Ok)
 			goto error_exit;
-		}
 	}
-	pr_debug("[goodix] %s after implemented tfaContWriteProfile()\n", __func__);
 
+#ifndef CONFIG_MACH_XIAOMI
+	/* If the profile contains the .standby suffix go to powerdown
+	 * else we should be in operating state
+	 */
+	if (strstr(tfaContProfileName(tfa->cnt, tfa->dev_idx, next_profile), ".standby") != NULL) {
+		tfa_dev_set_swprof(tfa, (unsigned short)next_profile);
+		tfa_dev_set_swvstep(tfa, (unsigned short)vstep);
 
-	err = show_current_state(tfa);
-#ifndef __KERNEL__
-	/* get current vstep*/
-	tfa->vstep = tfa_dev_get_swvstep(tfa);
+		pr_info("Power down device, by force, in standby profile!\n");
+		err = tfa_dev_stop(tfa);
+		goto error_exit;
+	}
 #endif
+
+	err = tfa_show_current_state(tfa);
+
 	if ((TFA_GET_BF(tfa, CFE) != 0) && (vstep != tfa->vstep) && (vstep != -1)) {
 		err = tfaContWriteFilesVstep(tfa, next_profile, vstep);
-		if ( err != Tfa98xx_Error_Ok) {
-			pr_err("tfaContWriteFilesVstep failed  %d\n", err);
+		if (err != Tfa98xx_Error_Ok)
 			goto error_exit;
-		}
-		pr_debug("after implemented tfaContWriteFilesVstep()\n");
 	}
 
 	/* Always search and apply filters after a startup */
 	err = tfa_set_filters(tfa, next_profile);
-	if (err!=Tfa98xx_Error_Ok) {
-		pr_err("tfaContWriteFilesVstep failed  %d\n", err);
+	if (err != Tfa98xx_Error_Ok)
 		goto error_exit;
-	}
 
 	tfa_dev_set_swprof(tfa, (unsigned short)next_profile);
 	tfa_dev_set_swvstep(tfa, (unsigned short)vstep);
@@ -3392,20 +3489,26 @@ enum tfa_error tfa_dev_start(struct tfa_device *tfa, int next_profile, int vstep
 	}
 
 error_exit:
-	pr_debug("[goodix] %s end...\n", __func__);
-	show_current_state(tfa);
+	tfa_show_current_state(tfa);
+
+#ifndef CONFIG_MACH_XIAOMI
+	return err;
+#else
 	if (err != Tfa98xx_Error_Ok) {
 		pr_err("TFA98xx Error code is %d\n", err);
 		return tfa_error_max;
 	}
-	
+
 	return tfa_error_ok;
+#endif
 }
 
 enum tfa_error tfa_dev_stop(struct tfa_device *tfa)
 {
 	enum Tfa98xx_Error err = Tfa98xx_Error_Ok;
+#ifdef CONFIG_MACH_XIAOMI
 	int manstate = 0, retry = 0;
+#endif
 
 	/* mute */
 	tfaRunMute(tfa);
@@ -3416,11 +3519,16 @@ enum tfa_error tfa_dev_stop(struct tfa_device *tfa)
 	/* powerdown CF */
 	err = tfa98xx_powerdown(tfa, 1);
 	if (err != Tfa98xx_Error_Ok)
+#ifdef CONFIG_MACH_XIAOMI
 		goto error_exit;
+#else
+		return err;
+#endif
 
 	/* disable I2S output on TFA1 devices without TDM */
 	err = tfa98xx_aec_output(tfa, 0);
 
+#ifdef CONFIG_MACH_XIAOMI
 	/* we should ensure the state machine in powerdown mode here. */
 	manstate = TFA_GET_BF(tfa, MANSTATE);
 	while ((manstate >= 4) && (retry < 100)) {
@@ -3435,8 +3543,11 @@ error_exit:
 		pr_err("TFA98xx Error code is %d\n", err);
 		return tfa_error_max;
 	}
-	
+
 	return tfa_error_ok;
+#else
+	return err;
+#endif
 }
 
 /*
@@ -3540,8 +3651,10 @@ int tfa_reset(struct tfa_device *tfa)
 
 			/* Powerdown state should be reached within 1ms */
 			for (retry_cnt = 0; retry_cnt < TFA98XX_WAITRESULT_NTRIES; retry_cnt++) {
-				if (is_94_N2_device(tfa))
+				if (tfa_is_94_N2_device(tfa))
 					state = tfa_get_bf(tfa, TFA9894N2_BF_MANSTATE);
+				else if ((tfa->rev & 0xff) == 0x75)
+					state = tfa_get_bf(tfa, TFA9875_BF_MANSTATE);
 				else
 					state = TFA_GET_BF(tfa, MANSTATE);
 				if (state < 0) {
@@ -3607,7 +3720,11 @@ enum Tfa98xx_Error tfa_dsp_get_calibration_impedance(struct tfa_device *tfa)
 
 	error = tfa_supported_speakers(tfa, &spkr_count);
 
+#ifndef CONFIG_MACH_XIAOMI
+	if (tfa_dev_mtp_get(tfa, TFA_MTP_OTC)) {
+#else
 	if (tfa_dev_mtp_get(tfa, TFA_MTP_OTC) && tfa_dev_mtp_get(tfa, TFA_MTP_EX)) {
+#endif
 		pr_debug("Getting calibration values from MTP\n");
 
 		if ((tfa->rev & 0xFF) == 0x88) {
@@ -3617,12 +3734,15 @@ enum Tfa98xx_Error tfa_dsp_get_calibration_impedance(struct tfa_device *tfa)
 				else
 					tfa->mohm[i] = tfa_dev_mtp_get(tfa, TFA_MTP_RE25_SEC);
 			}
-		}
-		else {
+		} else {
 			tfa->mohm[0] = tfa_dev_mtp_get(tfa, TFA_MTP_RE25);
 		}
 	}
+#ifndef CONFIG_MACH_XIAOMI
+	else {
+#else
 	else if ((tfa_dev_mtp_get(tfa, TFA_MTP_OTC) == 0) && (tfa_dev_mtp_get(tfa, TFA_MTP_EX) == 0)) {
+#endif
 		pr_debug("Getting calibration values from Speakerboost\n");
 
 		/* Make sure the calibrateDone bit is set before getting the values from speakerboost!
@@ -3636,63 +3756,74 @@ enum Tfa98xx_Error tfa_dsp_get_calibration_impedance(struct tfa_device *tfa)
 				*/
 			calibrateDone = 0;
 			while ((calibrateDone != 1) && (tries < TFA98XX_API_WAITRESULT_NTRIES)) {
-				error = mem_read(tfa, TFA_FW_XMEM_CALIBRATION_DONE, 1, &calibrateDone);
+				error = tfa_mem_read(tfa, TFA_FW_XMEM_CALIBRATION_DONE, 1, &calibrateDone);
+#ifndef CONFIG_MACH_XIAOMI
+				if (calibrateDone == 1)
+#else
 				if ((calibrateDone == 1) || (Tfa98xx_Error_Ok != error))
+#endif
 					break;
 				tries++;
 			}
 
-			if (calibrateDone == 1)
-				pr_debug("Calibration successed!!!\n");
-			else if ((calibrateDone != 1) || (Tfa98xx_Error_Ok != error)) {
-				pr_err("Calibration failed!     calibrateDone=%d    error=%d\n", calibrateDone, error);
+			if (calibrateDone != 1) {
+				pr_err("Calibration failed! \n");
+#ifdef CONFIG_MACH_XIAOMI
+			} else if ((calibrateDone != 1) || (Tfa98xx_Error_Ok != error)) {
+				pr_err("Calibration failed! calibrateDone=%d error=%d\n", calibrateDone, error);
+#endif
 				error = Tfa98xx_Error_Bad_Parameter;
 			}
 			else if (tries == TFA98XX_API_WAITRESULT_NTRIES) {
 				pr_debug("Calibration has timedout! \n");
 				error = Tfa98xx_Error_StateTimedOut;
 			}
-		}else {
+#ifdef CONFIG_MACH_XIAOMI
+		} else {
 			/* dsp inside of TFA device. */
 			calibrateDone = 1;
+#endif
 		}
-		
 		/* SoftDSP interface differs from hw-dsp interfaces */
 		if (tfa->is_probus_device && tfa->cnt->ndev > 1) {
 			spkr_count = tfa->cnt->ndev;
 		}
 
+#ifdef CONFIG_MACH_XIAOMI
 		if (1 == calibrateDone) {
-			nr_bytes = spkr_count * 3;
-			error = tfa_dsp_cmd_id_write_read(tfa, MODULE_SPEAKERBOOST, SB_PARAM_GET_RE25C, nr_bytes, bytes);
-			if (error == Tfa98xx_Error_Ok) {
-				tfa98xx_convert_bytes2data(nr_bytes, bytes, data);
+#endif
+		nr_bytes = spkr_count * 3;
+		error = tfa_dsp_cmd_id_write_read(tfa, MODULE_SPEAKERBOOST, SB_PARAM_GET_RE25C, nr_bytes, bytes);
+		if (error == Tfa98xx_Error_Ok) {
+			tfa98xx_convert_bytes2data(nr_bytes, bytes, data);
 
-				for (i = 0; i < spkr_count; i++) {
+			for (i = 0; i < spkr_count; i++) {
 
-					/* for probus devices, calibration values coming from soft-dsp speakerboost,
-					   are ordered in a different way. Re-align to standard representation. */
-					cal_idx = i;
-					if ((tfa->is_probus_device && tfa->dev_idx >= 1)) {
-						cal_idx = 0;
-					}
-
-					/* signed data has a limit of 30 Ohm */
-					scaled_data = data[i];
-
-					if (tfa->tfa_family == 2)
-						tfa->mohm[cal_idx] = (scaled_data * 1000) / TFA2_FW_ReZ_SCALE;
-					else
-						tfa->mohm[cal_idx] = (scaled_data * 1000) / TFA1_FW_ReZ_SCALE;
+				/* for probus devices, calibration values coming from soft-dsp speakerboost,
+				   are ordered in a different way. Re-align to standard representation. */
+				cal_idx = i;
+				if ((tfa->is_probus_device && tfa->dev_idx >= 1)) {
+					cal_idx = 0;
 				}
+
+				/* signed data has a limit of 30 Ohm */
+				scaled_data = data[i];
+
+				if (tfa->tfa_family == 2)
+					tfa->mohm[cal_idx] = (scaled_data * 1000) / TFA2_FW_ReZ_SCALE;
+				else
+					tfa->mohm[cal_idx] = (scaled_data * 1000) / TFA1_FW_ReZ_SCALE;
 			}
 		}
+#ifdef CONFIG_MACH_XIAOMI
 	} else {
 		for(i=0; i<spkr_count; i++) {
 			tfa->mohm[i] = 0;
 		}
 		pr_err("Please run calibration command first.\n");
 		error = Tfa98xx_Error_Bad_Parameter;
+	}
+#endif
 	}
 
 	return error;
@@ -3803,7 +3934,7 @@ static const int eq_biquads[] = {
 
 #define NR_EQ (int)(sizeof(eq_biquads) / sizeof(int))
 
-enum Tfa98xx_Error dsp_partial_coefficients(struct tfa_device *tfa, uint8_t *prev, uint8_t *next)
+enum Tfa98xx_Error tfa_dsp_partial_coefficients(struct tfa_device *tfa, uint8_t *prev, uint8_t *next)
 {
 	uint8_t bq, eq;
 	int eq_offset;
@@ -3878,7 +4009,7 @@ enum Tfa98xx_Error dsp_partial_coefficients(struct tfa_device *tfa, uint8_t *pre
 		/* parameters */
 		memcpy(&buffer[3], data2, sizeof(struct dsp_msg_all_coeff));
 
-		err = dsp_msg(tfa, buffer_sz, (const char *)buffer);
+		err = tfa_dsp_msg(tfa, buffer_sz, (const char *)buffer);
 
 		kfree(buffer);
 		if (err)
@@ -3911,7 +4042,7 @@ enum Tfa98xx_Error dsp_partial_coefficients(struct tfa_device *tfa, uint8_t *pre
 				/* biquad parameters */
 				memcpy(&msg[6], eq2, BQ_SIZE * eq_biquads[eq]);
 
-				err = dsp_msg(tfa, msg_sz, (const char *)msg);
+				err = tfa_dsp_msg(tfa, msg_sz, (const char *)msg);
 
 				kfree(msg);
 				if (err)
@@ -3943,7 +4074,7 @@ enum Tfa98xx_Error dsp_partial_coefficients(struct tfa_device *tfa, uint8_t *pre
 						/* biquad parameters */
 						memcpy(&msg[6], bq2, BQ_SIZE);
 
-						err = dsp_msg(tfa, msg_sz, (const char *)msg);
+						err = tfa_dsp_msg(tfa, msg_sz, (const char *)msg);
 
 						kmem_cache_free(tfa->cachep, msg);
 						if (err)
@@ -3989,7 +4120,6 @@ enum tfa_error tfa_dev_set_state(struct tfa_device *tfa, enum tfa_state state, i
 	int loop = 50, ready = 0;
 	int count;
 
-	pr_debug("tfa_dev_set_state()   state=%d    is_calibration=%d\n", state, is_calibration);
 	/* Base states */
 	/* Do not change the order of setting bits as this is important! */
 	switch (state & 0x0f) {
@@ -3999,9 +4129,9 @@ enum tfa_error tfa_dev_set_state(struct tfa_device *tfa, enum tfa_state state, i
 		break;
 	case TFA_STATE_INIT_CF:      /* coolflux HW access possible (~initcf) */
 								 /* Start with SBSL=0 to stay in initCF state */
-		if (!tfa->is_probus_device) {
+		if (!tfa->is_probus_device)
 			TFA_SET_BF(tfa, SBSL, 0);
-		}
+
 		/* We want to leave Wait4SrcSettings state for max2 */
 		if (tfa->tfa_family == 2)
 			TFA_SET_BF(tfa, MANSCONF, 1);
@@ -4017,7 +4147,6 @@ enum tfa_error tfa_dev_set_state(struct tfa_device *tfa, enum tfa_state state, i
 			if (ready)
 				break;
 		} while (loop--);
-		pr_debug("after performed tfa98xx_dsp_system_stable()  err=%d ready=%d  loop=%d\n", err, ready, loop);
 		if (((!tfa->is_probus_device) && (is_calibration)) || ((tfa->rev & 0xff) == 0x13))
 		{
 			/* Enable FAIM when clock is stable, to avoid MTP corruption */
@@ -4033,7 +4162,6 @@ enum tfa_error tfa_dev_set_state(struct tfa_device *tfa, enum tfa_state state, i
 								 /* Depending on our previous state we need to set 3 bits */
 		TFA_SET_BF(tfa, PWDN, 0);	/* Coming from state 0 */
 		TFA_SET_BF(tfa, MANSCONF, 1);	/* Coming from state 1 */
-		pr_debug("tfa->is_probus_device=%d    is_calibration=%d\n", tfa->is_probus_device, is_calibration);
 		if (!tfa->is_probus_device)
 			TFA_SET_BF(tfa, SBSL, 1);	/* Coming from state 6 */
 		else
@@ -4043,7 +4171,11 @@ enum tfa_error tfa_dev_set_state(struct tfa_device *tfa, enum tfa_state state, i
 										* Disable MTP clock to protect memory.
 										* However in case of calibration wait for DSP! (This should be case only during calibration).
 										*/
+#ifndef CONFIG_MACH_XIAOMI
+		if (TFA_GET_BF(tfa, MTPOTC) == 1 && tfa->tfa_family == 2) {
+#else
 		if ((TFA_GET_BF(tfa, MTPOTC) == 1) && (tfa->tfa_family == 2) && is_calibration) {
+#endif
 			count = MTPEX_WAIT_NTRIES * 4; /* Calibration takes a lot of time */
 			while ((TFA_GET_BF(tfa, MTPEX) != 1) && count) {
 				msleep_interruptible(10);
@@ -4112,8 +4244,10 @@ enum tfa_state tfa_dev_get_state(struct tfa_device *tfa)
 			tfa->state = TFA_STATE_OPERATING;
 	}
 	else /* family 2 */ {
-		if (is_94_N2_device(tfa))
+		if (tfa_is_94_N2_device(tfa))
 			manstate = tfa_get_bf(tfa, TFA9894N2_BF_MANSTATE);
+		else if ((tfa->rev & 0xff) == 0x75)
+			manstate = tfa_get_bf(tfa, TFA9875_BF_MANSTATE);
 		else
 			manstate = TFA_GET_BF(tfa, MANSTATE);
 		switch (manstate) {
@@ -4156,7 +4290,7 @@ int tfa_dev_mtp_get(struct tfa_device *tfa, enum tfa_mtp item)
 				value = TFA_GET_BF(tfa, R25C);
 		}
 		else {
-			reg_read(tfa, 0x83, (unsigned short*)&value);
+			tfa_reg_read(tfa, 0x83, (unsigned short*)&value);
 		}
 		break;
 	case TFA_MTP_RE25_SEC:
@@ -4176,7 +4310,11 @@ int tfa_dev_mtp_get(struct tfa_device *tfa, enum tfa_mtp item)
 
 enum tfa_error tfa_dev_mtp_set(struct tfa_device *tfa, enum tfa_mtp item, int value)
 {
+#ifndef CONFIG_MACH_XIAOMI
+	enum tfa_error err = tfa_error_ok;
+#else
 	enum Tfa98xx_Error err = Tfa98xx_Error_Ok;
+#endif
 
 	switch (item) {
 	case TFA_MTP_OTC:
@@ -4206,18 +4344,27 @@ enum tfa_error tfa_dev_mtp_set(struct tfa_device *tfa, enum tfa_mtp item, int va
 		}
 		else {
 			pr_debug("Error: Current device has no secondary Re25 channel \n");
+#ifndef CONFIG_MACH_XIAOMI
+			err = tfa_error_bad_param;
+#else
 			err = Tfa98xx_Error_Bad_Parameter;
+#endif
 		}
 		break;
 	case TFA_MTP_LOCK:
 		break;
 	}
 
+#ifndef CONFIG_MACH_XIAOMI
+	return err;
+#else
 	if (err != Tfa98xx_Error_Ok) {
 		pr_err("TFA98xx Error code is %d\n", err);
 		return tfa_error_max;
 	}
+
 	return tfa_error_ok;
+#endif
 }
 
 int tfa_get_pga_gain(struct tfa_device *tfa)
@@ -4241,7 +4388,9 @@ enum Tfa98xx_Error tfa_status(struct tfa_device *tfa)
 {
 	int value;
 	uint16_t val;
-
+    
+	if (tfa->dev_ops.tfa_status != NULL)
+		return(tfa->dev_ops.tfa_status(tfa));
 	/*
 	 * check IC status bits: cold start
 	 * and DSP watch dog bit to re init
@@ -4291,7 +4440,53 @@ enum Tfa98xx_Error tfa_status(struct tfa_device *tfa)
 	return Tfa98xx_Error_Ok;
 }
 #ifdef __KERNEL__
-int tfa_dev_set_tdm_bitwidth(struct tfa_device* tfa, int width)
+void tfa_dev_get_tdm_add(struct tfa_device* tfa, uint16_t* tdme, uint16_t* tnbck, uint16_t* tslln, uint16_t* tsize)
+{
+	unsigned short revid = tfa->rev;
+	switch (revid & 0xff) {
+	case 0x72:
+		*tdme = TFA9872_BF_TDME;
+		*tnbck = TFA9872_BF_TDMNBCK;
+		*tslln = TFA9872_BF_TDMSLLN;
+		*tsize = TFA9872_BF_TDMSSIZE;
+		break;
+	case 0x73:
+		*tdme = TFA9873_BF_TDME;
+		*tnbck = TFA9873_BF_TDMNBCK;
+		*tslln = TFA9873_BF_TDMSLLN;
+		*tsize = TFA9873_BF_TDMSSIZE;
+		break;
+	case 0x74:
+		*tdme = TFA9874_BF_TDME;
+		*tnbck = TFA9874_BF_TDMNBCK;
+		*tslln = TFA9874_BF_TDMSLLN;
+		*tsize = TFA9874_BF_TDMSSIZE;
+		break;
+	case 0x78:
+		*tdme = TFA9878_BF_TDME;
+		*tnbck = TFA9878_BF_TDMNBCK;
+		*tslln = TFA9878_BF_TDMSLLN;
+		*tsize = TFA9878_BF_TDMSSIZE;
+		break;
+	case 0x13:
+		*tdme = TFA9912_BF_TDME;
+		*tnbck = TFA9912_BF_TDMNBCK;
+		*tslln = TFA9912_BF_TDMSLLN;
+		*tsize = TFA9912_BF_TDMSSIZE;
+		break;
+	case 0x94:
+		*tdme = TFA9894_BF_TDME;
+		*tnbck = TFA9894_BF_TDMNBCK;
+		*tslln = TFA9894_BF_TDMSLLN;
+		*tsize = TFA9894_BF_TDMSSIZE;
+		break;
+
+	default:
+		pr_err("unsuported device rev:%x\n", revid);
+		break;
+	}
+}
+int tfa_dev_set_tdm_bitwidth(struct tfa_device* tfa, int width)/*SACAS-26*/
 {
 	uint8_t nbck, slotlen, samplesize;
 
@@ -4319,13 +4514,15 @@ int tfa_dev_set_tdm_bitwidth(struct tfa_device* tfa, int width)
 
 	if (tfa->tfa_family == 2)
 	{
+		uint16_t tdme, tdmnbck, tdmslln,tdmssize;
+		tfa_dev_get_tdm_add(tfa,&tdme,&tdmnbck,&tdmslln,&tdmssize); /*SACAS-26*/
 		/* stop tdm */
-		TFA2_SET_TDM(tfa, TDME, 0);
-		TFA2_SET_TDM(tfa, TDMNBCK, nbck);
-		TFA2_SET_TDM(tfa, TDMSLLN, slotlen);
-		TFA2_SET_TDM(tfa, TDMSSIZE, samplesize);
+		tfa_set_bf(tfa, tdme, 0);
+		tfa_set_bf(tfa, tdmnbck, nbck);
+		tfa_set_bf(tfa, tdmslln, slotlen);
+		tfa_set_bf(tfa, tdmssize, samplesize);
 		/* enable tdm */
-		TFA2_SET_TDM(tfa, TDME, 1);
+		tfa_set_bf(tfa, tdme, 1);
 	}
 	else if (tfa->daimap == Tfa98xx_DAI_TDM)
 	{

@@ -30,6 +30,7 @@
 #include <linux/mount.h>
 #include <linux/slab.h>
 #include <linux/major.h>
+#ifdef CONFIG_MACH_XIAOMI
 #include <linux/errno.h>
 #include <linux/kernel.h>
 #include <linux/cdev.h>
@@ -56,15 +57,14 @@
 #define DISK_DONE  1003
 #define DISK_SYNC  1004
 
-//erro no
+//errno
 #define ERR_NO_DEVICE   -1
 #define ERR_BUSY        -2
 #define ERR_PARAM       -3
 
-struct Scsi_Host *g_shost=NULL;
-
+struct Scsi_Host *g_shost = NULL;
 struct request *rq;
-
+#endif
 
 /* Info for the block device */
 struct block2mtd_dev {
@@ -74,8 +74,10 @@ struct block2mtd_dev {
 	struct mutex write_mutex;
 };
 
+#ifdef CONFIG_MACH_XIAOMI
 struct page *mtd_pages[512];
 struct scatterlist sgl[512];
+#endif
 
 /* Static info about the MTD, used in cleanup_module */
 static LIST_HEAD(blkmtd_device_list);
@@ -193,7 +195,11 @@ static int _block2mtd_write(struct block2mtd_dev *dev, const u_char *buf,
 			lock_page(page);
 			memcpy(page_address(page) + offset, buf, cpylen);
 			set_page_dirty(page);
+#ifndef CONFIG_MACH_XIAOMI
+			unlock_page(page);
+#else
 			write_one_page(page);
+#endif
 			balance_dirty_pages_ratelimited(mapping);
 		}
 		put_page(page);
@@ -208,6 +214,8 @@ static int _block2mtd_write(struct block2mtd_dev *dev, const u_char *buf,
 	return 0;
 }
 
+#ifdef CONFIG_MACH_XIAOMI
+
 void diskio_done(struct scsi_cmnd *scmd)
 {
 	int i = 0;
@@ -215,8 +223,10 @@ void diskio_done(struct scsi_cmnd *scmd)
 
 	for (i = 0; i < scmd->sdb.table.nents; i++)
 		put_page(mtd_pages[i]);
+
 	scsi_normalize_sense(scmd->sense_buffer, sizeof(struct scsi_sense_hdr), &sshr);
 	scsi_put_command(scmd);
+
 	pr_info("block2mtd panic write: diskio done\n");
 }
 
@@ -229,6 +239,7 @@ struct scsi_device *get_scsi_device(struct block_device *bdev)
 		pr_err("block2mtd panic write: sdisk get failed\n");
 		return NULL;
 	}
+
 	if (!sdisk->device) {
 		pr_err("block2mtd panic write: sdev get failed\n");
 		return NULL;
@@ -249,13 +260,16 @@ int do_sync(int cmd, struct block_device *bdev, u32 len)
 	sdev = get_scsi_device(bdev);
 
 	cdb[0] = 0x35;
+
 	for (i = 0; i < 10 ; i++)
 		cdb[i] = 0;
+
 	cdb_len = 10;
 	if (unlikely(!rq)) {
 		pr_err("do_sync rq is NULL ! \n");
-		return ERR_BUSY;  // ERR_BUSY=-2
+		return ERR_BUSY;
 	}
+
 	scmd = (struct scsi_cmnd *)(rq + 1);
 	scsi_init_command(sdev, scmd);
 	scmd->request = rq;
@@ -350,7 +364,6 @@ int do_io(int cmd, struct block_device *bdev,  const u_char *buf, u32 len, u64 o
 	scmd->cmnd = cdb;
 	scmd->cmd_len = cdb_len;
 	scmd->sdb.length = len;
-	//scmd->sdb.resid = 0;
 	scmd->req.resid_len = 0;
 	scmd->sdb.table.nents = nr_pages;
 	scmd->sdb.table.orig_nents = nr_pages;
@@ -413,12 +426,14 @@ static int _block2mtd_panic_write(struct block2mtd_dev *dev, const u_char *buf,
 		pr_err("block2mtd_panic_write error ret: 0x%x\n", ret);
 	else
 		*retlen = len;
+
 	ret = do_sync(DISK_WRITE, dev->blkdev, len);
 	if (ret != 0)
 		pr_err("block2mtd_panic disk sync error ret: 0x%x\n", ret);
 
 	return ret;
 }
+#endif
 
 static int block2mtd_write(struct mtd_info *mtd, loff_t to, size_t len,
 		size_t *retlen, const u_char *buf)
@@ -434,6 +449,7 @@ static int block2mtd_write(struct mtd_info *mtd, loff_t to, size_t len,
 	return err;
 }
 
+#ifdef CONFIG_MACH_XIAOMI
 static int block2mtd_panic_write(struct mtd_info *mtd, loff_t to, size_t len,
 		size_t *retlen, const u_char *buf)
 {
@@ -443,8 +459,10 @@ static int block2mtd_panic_write(struct mtd_info *mtd, loff_t to, size_t len,
 	err = _block2mtd_panic_write(dev, buf, to, len, retlen);
 	if (err > 0)
 		err = 0;
+
 	return err;
 }
+#endif
 
 /* sync the device - wait until the write queue is empty */
 static void block2mtd_sync(struct mtd_info *mtd)
@@ -479,10 +497,14 @@ static struct block2mtd_dev *add_device(char *devname, int erase_size,
 	int i;
 #endif
 	const fmode_t mode = FMODE_READ | FMODE_WRITE | FMODE_EXCL;
+#ifndef CONFIG_MACH_XIAOMI
+	struct block_device *bdev;
+#else
 	struct block_device *bdev = ERR_PTR(-ENODEV);
+	struct scsi_device *sdev;
+#endif
 	struct block2mtd_dev *dev;
 	char *name;
-	struct scsi_device *sdev;
 
 	if (!devname)
 		return NULL;
@@ -534,7 +556,8 @@ static struct block2mtd_dev *add_device(char *devname, int erase_size,
 		goto err_free_block2mtd;
 	}
 
-    sdev = get_scsi_device(bdev);
+#ifdef CONFIG_MACH_XIAOMI
+	sdev = get_scsi_device(bdev);
 	g_shost = sdev->host;
 	rq = kzalloc(sizeof(struct request) + sizeof(struct scsi_cmnd) +
 						g_shost->hostt->cmd_size, GFP_KERNEL);
@@ -542,6 +565,7 @@ static struct block2mtd_dev *add_device(char *devname, int erase_size,
 		pr_err("mtd rq allocate failed\n");
 		goto err_free_block2mtd;
 	}
+#endif
 
 	mutex_init(&dev->write_mutex);
 
@@ -561,8 +585,9 @@ static struct block2mtd_dev *add_device(char *devname, int erase_size,
 	dev->mtd.flags = MTD_CAP_RAM;
 	dev->mtd._erase = block2mtd_erase;
 	dev->mtd._write = block2mtd_write;
+#ifdef CONFIG_MACH_XIAOMI
 	dev->mtd._panic_write = block2mtd_panic_write;
-	//dev->mtd._panic_write = NULL;
+#endif
 	dev->mtd._sync = block2mtd_sync;
 	dev->mtd._read = block2mtd_read;
 	dev->mtd.priv = dev;
@@ -582,7 +607,9 @@ static struct block2mtd_dev *add_device(char *devname, int erase_size,
 
 err_destroy_mutex:
 	mutex_destroy(&dev->write_mutex);
+#ifdef CONFIG_MACH_XIAOMI
 	kfree(rq);
+#endif
 err_free_block2mtd:
 	block2mtd_free_device(dev);
 	return NULL;
@@ -655,7 +682,11 @@ static int block2mtd_setup2(const char *val)
 	char *str = buf;
 	char *token[2];
 	char *name;
+#ifdef CONFIG_MACH_XIAOMI
 	size_t erase_size = 1024 * 1024;
+#else
+	size_t erase_size = PAGE_SIZE;
+#endif
 	unsigned long timeout = MTD_DEFAULT_TIMEOUT;
 	int i, ret;
 

@@ -57,6 +57,7 @@
 #include <linux/regulator/consumer.h>
 #include <linux/bitfield.h>
 #include <linux/devfreq.h>
+#include <linux/pm_qos.h>
 #include "unipro.h"
 
 #include <asm/irq.h>
@@ -73,6 +74,10 @@
 #include "ufs_quirks.h"
 #include "ufshci.h"
 
+#if defined(CONFIG_SCSI_SKHPB)
+#include "ufshpb_skh.h"
+#endif
+
 #define UFSHCD "ufshcd"
 #define UFSHCD_DRIVER_VERSION "0.2"
 
@@ -84,30 +89,6 @@ enum dev_cmd_type {
 	DEV_CMD_TYPE_NOP		= 0x0,
 	DEV_CMD_TYPE_QUERY		= 0x1,
 };
-
-#define ufs_spin_lock_irqsave(lock, flags)				\
-do {	\
-	if (!oops_in_progress)\
-		spin_lock_irqsave(lock, flags);	\
-} while (0)
-
-#define ufs_spin_unlock_irqrestore(lock, flags)				\
-do {	\
-	if (!oops_in_progress)\
-		spin_unlock_irqrestore(lock, flags);	\
-} while (0)
-
-#define ufs_spin_lock(lock)				\
-do {	\
-	if (!oops_in_progress)\
-		spin_lock(lock);	\
-} while (0)
-
-#define ufs_spin_unlock(lock)				\
-do {	\
-	if (!oops_in_progress)\
-		spin_unlock(lock);	\
-} while (0)
 
 /**
  * struct uic_command - UIC command structure
@@ -1040,6 +1021,21 @@ struct ufs_hba {
 	struct device		bsg_dev;
 	struct request_queue	*bsg_queue;
 
+#if defined(CONFIG_SCSI_SKHPB)
+	u32 skhpb_feat;
+	int skhpb_state;
+	int skhpb_max_regions;
+	struct delayed_work skhpb_init_work;
+	bool issue_ioctl;
+	struct skhpb_lu *skhpb_lup[UFS_UPIU_MAX_GENERAL_LUN];
+	struct work_struct skhpb_eh_work;
+	u32 skhpb_quirk;
+	u8 hpb_control_mode;
+#define SKHPB_U8_MAX 0xFF
+	u8 skhpb_quicklist_lu_enable[UFS_UPIU_MAX_GENERAL_LUN];
+
+	struct scsi_device *sdev_ufs_lu[UFS_UPIU_MAX_GENERAL_LUN];
+#endif
 #ifdef CONFIG_SCSI_UFS_CRYPTO
 	/* crypto */
 	union ufs_crypto_capabilities crypto_capabilities;
@@ -1052,6 +1048,16 @@ struct ufs_hba {
 	bool wb_buf_flush_enabled;
 	bool wb_enabled;
 	struct delayed_work rpm_dev_flush_recheck_work;
+	
+	struct {
+		struct pm_qos_request req;
+		struct work_struct get_work;
+		struct work_struct put_work;
+		struct mutex lock;
+		atomic_t count;
+		bool active;
+	} pm_qos;
+
 	ANDROID_KABI_RESERVE(1);
 	ANDROID_KABI_RESERVE(2);
 	ANDROID_KABI_RESERVE(3);
@@ -1309,7 +1315,9 @@ int ufshcd_query_attr(struct ufs_hba *hba, enum query_opcode opcode,
 		      enum attr_idn idn, u8 index, u8 selector, u32 *attr_val);
 int ufshcd_query_flag(struct ufs_hba *hba, enum query_opcode opcode,
 	enum flag_idn idn, u8 index, bool *flag_res);
-
+#ifdef CONFIG_MACH_XIAOMI
+int ufshcd_get_hynix_hr(struct scsi_device *sdev, u8 *buf, u32 size);
+#endif
 void ufshcd_auto_hibern8_enable(struct ufs_hba *hba);
 void ufshcd_auto_hibern8_update(struct ufs_hba *hba, u32 ahit);
 void ufshcd_fixup_dev_quirks(struct ufs_hba *hba, struct ufs_dev_fix *fixups);
@@ -1486,6 +1494,10 @@ static inline void ufshcd_vops_device_reset(struct ufs_hba *hba)
 	if (hba->vops && hba->vops->device_reset) {
 		hba->vops->device_reset(hba);
 		ufshcd_set_ufs_dev_active(hba);
+		if (ufshcd_is_wb_allowed(hba)) {
+			hba->wb_enabled = false;
+			hba->wb_buf_flush_enabled = false;
+		}
 		ufshcd_update_reg_hist(&hba->ufs_stats.dev_reset, 0);
 	}
 }
@@ -1515,6 +1527,10 @@ static inline u8 ufshcd_scsi_to_upiu_lun(unsigned int scsi_lun)
 		return scsi_lun & UFS_UPIU_MAX_UNIT_NUM_ID;
 }
 
+#if defined(CONFIG_SCSI_SKHPB)
+int ufshcd_query_flag_retry(struct ufs_hba *hba,
+	enum query_opcode opcode, enum flag_idn idn, u8 index, bool *flag_res);
+#endif
 
 int ufshcd_dump_regs(struct ufs_hba *hba, size_t offset, size_t len,
 		     const char *prefix);

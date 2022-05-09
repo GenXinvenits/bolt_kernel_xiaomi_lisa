@@ -1558,7 +1558,6 @@ void mem_cgroup_print_oom_context(struct mem_cgroup *memcg, struct task_struct *
 void mem_cgroup_print_oom_meminfo(struct mem_cgroup *memcg)
 {
 	char *buf;
-
 #ifdef CONFIG_MIMISC_MC
 	int i = 0;
 #endif
@@ -1850,7 +1849,7 @@ static void mem_cgroup_oom_unlock(struct mem_cgroup *memcg)
 	struct mem_cgroup *iter;
 
 	spin_lock(&memcg_oom_lock);
-	mutex_release(&memcg_oom_lock_dep_map, 1, _RET_IP_);
+	mutex_release(&memcg_oom_lock_dep_map, _RET_IP_);
 	for_each_mem_cgroup_tree(iter, memcg)
 		iter->oom_lock = false;
 	spin_unlock(&memcg_oom_lock);
@@ -5620,11 +5619,11 @@ static void mem_cgroup_css_offline(struct cgroup_subsys_state *css)
 {
 	struct mem_cgroup *memcg = mem_cgroup_from_css(css);
 	struct mem_cgroup_event *event, *tmp;
-
 #ifdef CONFIG_MIMISC_MC
 	struct mem_cgroup *old = NULL;
 	int index;
 #endif
+
 	/*
 	 * Unregister events and notify userspace.
 	 * Notify userspace about cgroup removing only after rmdir of cgroup
@@ -6113,9 +6112,9 @@ static unsigned long mem_cgroup_count_precharge(struct mm_struct *mm)
 {
 	unsigned long precharge;
 
-	down_read(&mm->mmap_sem);
+	mmap_read_lock(mm);
 	walk_page_range(mm, 0, mm->highest_vm_end, &precharge_walk_ops, NULL);
-	up_read(&mm->mmap_sem);
+	mmap_read_unlock(mm);
 
 	precharge = mc.precharge;
 	mc.precharge = 0;
@@ -6398,7 +6397,7 @@ static void mem_cgroup_move_charge(void)
 	atomic_inc(&mc.from->moving_account);
 	synchronize_rcu();
 retry:
-	if (unlikely(!down_read_trylock(&mc.mm->mmap_sem))) {
+	if (unlikely(!mmap_read_trylock(mc.mm))) {
 		/*
 		 * Someone who are holding the mmap_sem might be waiting in
 		 * waitq. So we cancel all extra charges, wake up all waiters,
@@ -6417,7 +6416,7 @@ retry:
 	walk_page_range(mc.mm, 0, mc.mm->highest_vm_end, &charge_walk_ops,
 			NULL);
 
-	up_read(&mc.mm->mmap_sem);
+	mmap_read_unlock(mc.mm);
 	atomic_dec(&mc.from->moving_account);
 }
 
@@ -6832,6 +6831,14 @@ enum mem_cgroup_protection mem_cgroup_protected(struct mem_cgroup *root,
 
 	if (!root)
 		root = root_mem_cgroup;
+
+	/*
+	 * Effective values of the reclaim targets are ignored so they
+	 * can be stale. Have a look at mem_cgroup_protection for more
+	 * details.
+	 * TODO: calculation should be more robust so that we do not need
+	 * that special casing.
+	 */
 	if (memcg == root)
 		return MEMCG_PROT_NONE;
 
@@ -7351,7 +7358,7 @@ static int __init cgroup_memory(char *s)
 		if (!strcmp(token, "nokmem"))
 			cgroup_memory_nokmem = true;
 	}
-	return 0;
+	return 1;
 }
 __setup("cgroup.memory=", cgroup_memory);
 

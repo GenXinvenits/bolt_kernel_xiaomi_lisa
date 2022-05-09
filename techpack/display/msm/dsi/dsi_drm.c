@@ -1,23 +1,27 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_atomic.h>
+#ifdef CONFIG_MACH_XIAOMI
 #include <drm/mi_disp_notifier.h>
+#endif
 
 #include "msm_kms.h"
 #include "sde_connector.h"
 #include "dsi_drm.h"
 #include "sde_trace.h"
+#include "sde_dbg.h"
+#ifdef CONFIG_MACH_XIAOMI
 #include "mi_dsi_display.h"
 #include "sde_encoder.h"
-#include "sde_dbg.h"
-#include <linux/pm_wakeup.h>
 #include "msm_drv.h"
+
+#include <linux/pm_wakeup.h>
+#endif
 
 #define to_dsi_bridge(x)     container_of((x), struct dsi_bridge, base)
 #define to_dsi_state(x)      container_of((x), struct dsi_connector_state, base)
@@ -34,6 +38,7 @@ static struct dsi_display_mode_priv_info default_priv_info = {
 	.dsc_enabled = false,
 };
 
+#ifdef CONFIG_MACH_XIAOMI
 #define WAIT_RESUME_TIMEOUT 200
 
 struct dsi_bridge *gbridge;
@@ -45,7 +50,7 @@ struct dsi_bridge *gsec_bridge;
 static struct delayed_work sec_panel_work;
 static atomic_t sec_panel_is_on;
 static struct wakeup_source *sec_panel_wakelock;
-
+#endif
 
 static void convert_to_dsi_mode(const struct drm_display_mode *drm_mode,
 				struct dsi_display_mode *dsi_mode)
@@ -187,9 +192,11 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 {
 	int rc = 0;
 	struct dsi_bridge *c_bridge = to_dsi_bridge(bridge);
+#ifdef CONFIG_MACH_XIAOMI
 	struct mi_disp_notifier notify_data;
 	struct mi_dsi_panel_cfg *mi_cfg = NULL;
 	int power_mode = 0;
+#endif
 
 	if (!bridge) {
 		DSI_ERR("Invalid params\n");
@@ -202,7 +209,9 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 	}
 
 	atomic_set(&c_bridge->display->panel->esd_recovery_pending, 0);
+#ifdef CONFIG_MACH_XIAOMI
 	mi_cfg = &c_bridge->display->panel->mi_cfg;
+#endif
 
 	/* By this point mode should have been validated through mode_fixup */
 	rc = dsi_display_set_mode(c_bridge->display,
@@ -213,6 +222,7 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 		return;
 	}
 
+#ifdef CONFIG_MACH_XIAOMI
 	power_mode = sde_connector_get_lp(c_bridge->display->drm_conn);
 	notify_data.data = &power_mode;
 	notify_data.disp_id = mi_get_disp_id(c_bridge->display);
@@ -246,6 +256,7 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 			return;
 		}
 	}
+#endif
 
 	if (c_bridge->dsi_mode.dsi_mode_flags &
 		(DSI_MODE_FLAG_SEAMLESS | DSI_MODE_FLAG_VRR |
@@ -271,19 +282,21 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 				c_bridge->id, rc);
 		(void)dsi_display_unprepare(c_bridge->display);
 	}
-
 	SDE_ATRACE_END("dsi_display_enable");
 
 	rc = dsi_display_splash_res_cleanup(c_bridge->display);
 	if (rc)
 		DSI_ERR("Continuous splash pipeline cleanup failed, rc=%d\n",
 									rc);
+#ifdef CONFIG_MACH_XIAOMI
 	if (!strcmp(c_bridge->display->display_type, "primary"))
 		atomic_set(&prim_panel_is_on, true);
 	else if (!strcmp(c_bridge->display->display_type, "secondary"))
 		atomic_set(&sec_panel_is_on, true);
+#endif
 }
 
+#ifdef CONFIG_MACH_XIAOMI
 static void mi_dsi_bridge_pre_enable(struct drm_bridge *bridge)
 {
 	struct dsi_bridge *c_bridge = to_dsi_bridge(bridge);
@@ -311,11 +324,9 @@ static void mi_dsi_bridge_pre_enable(struct drm_bridge *bridge)
  *  @timeout: DSI bridge wait time for android resume and set panel on.
  *            If timeout, dsi bridge will disable panel to avoid fingerprint
  *            touch by mistake.
+ * fold_status :  0 - unfold status
+ *		1 - fold status
  */
-/**
-* fold_status :  0 - unfold status
-*		1 - fold status
-*/
 extern int fold_status;
 
 int dsi_bridge_interface_enable(int timeout)
@@ -370,6 +381,7 @@ int dsi_bridge_interface_enable(int timeout)
 	return ret;
 }
 EXPORT_SYMBOL(dsi_bridge_interface_enable);
+#endif
 
 static void dsi_bridge_enable(struct drm_bridge *bridge)
 {
@@ -405,11 +417,13 @@ static void dsi_bridge_enable(struct drm_bridge *bridge)
 				true);
 	}
 
+#ifdef CONFIG_MACH_XIAOMI
 	rc = mi_dsi_display_esd_irq_ctrl(c_bridge->display, true);
 	if (rc) {
 		DSI_ERR("[%d] DSI display enable esd irq failed, rc=%d\n",
 				c_bridge->id, rc);
 	}
+#endif
 }
 
 static void dsi_bridge_disable(struct drm_bridge *bridge)
@@ -427,11 +441,13 @@ static void dsi_bridge_disable(struct drm_bridge *bridge)
 	private_flags =
 		bridge->encoder->crtc->state->adjusted_mode.private_flags;
 
+#ifdef CONFIG_MACH_XIAOMI
 	rc = mi_dsi_display_esd_irq_ctrl(c_bridge->display, false);
 	if (rc) {
 		DSI_ERR("[%d] DSI display disable esd irq failed, rc=%d\n",
 				c_bridge->id, rc);
 	}
+#endif
 
 	if (display)
 		display->enabled = false;
@@ -454,15 +470,18 @@ static void dsi_bridge_post_disable(struct drm_bridge *bridge)
 {
 	int rc = 0;
 	struct dsi_bridge *c_bridge = to_dsi_bridge(bridge);
+#ifdef CONFIG_MACH_XIAOMI
 	struct mi_disp_notifier notify_data;
 	struct mi_dsi_panel_cfg *mi_cfg = NULL;
 	int power_mode = 0;
+#endif
 
 	if (!bridge) {
 		DSI_ERR("Invalid params\n");
 		return;
 	}
 
+#ifdef CONFIG_MACH_XIAOMI
 	if (!c_bridge || !c_bridge->display || !c_bridge->display->panel) {
 		DSI_ERR("Incorrect bridge details\n");
 		return;
@@ -474,6 +493,7 @@ static void dsi_bridge_post_disable(struct drm_bridge *bridge)
 	notify_data.data = &power_mode;
 	notify_data.disp_id = mi_get_disp_id(c_bridge->display);
 	mi_disp_notifier_call_chain(MI_DISP_DPMS_EARLY_EVENT, &notify_data);
+#endif
 
 	SDE_ATRACE_BEGIN("dsi_bridge_post_disable");
 	SDE_ATRACE_BEGIN("dsi_display_disable");
@@ -493,15 +513,19 @@ static void dsi_bridge_post_disable(struct drm_bridge *bridge)
 		SDE_ATRACE_END("dsi_bridge_post_disable");
 		return;
 	}
+#ifdef CONFIG_MACH_XIAOMI
 	mi_disp_notifier_call_chain(MI_DISP_DPMS_EVENT, &notify_data);
+#endif
 	SDE_ATRACE_END("dsi_bridge_post_disable");
-
+#ifdef CONFIG_MACH_XIAOMI
 	if (!strcmp(c_bridge->display->display_type, "primary"))
 		atomic_set(&prim_panel_is_on, false);
 	else if (!strcmp(c_bridge->display->display_type, "secondary"))
 		atomic_set(&sec_panel_is_on, false);
+#endif
 }
 
+#ifdef CONFIG_MACH_XIAOMI
 static void mi_dsi_bridge_post_disable(struct drm_bridge *bridge)
 {
 	struct dsi_bridge *c_bridge = to_dsi_bridge(bridge);
@@ -543,6 +567,7 @@ static void sec_panel_off_delayed_work(struct work_struct *work)
 	}
 	mutex_unlock(&gsec_bridge->lock);
 }
+#endif
 
 static void dsi_bridge_mode_set(struct drm_bridge *bridge,
 				const struct drm_display_mode *mode,
@@ -825,10 +850,18 @@ int dsi_conn_get_mode_info(struct drm_connector *connector,
 static const struct drm_bridge_funcs dsi_bridge_ops = {
 	.attach       = dsi_bridge_attach,
 	.mode_fixup   = dsi_bridge_mode_fixup,
+#ifndef CONFIG_MACH_XIAOMI
+	.pre_enable   = dsi_bridge_pre_enable,
+#else
 	.pre_enable   = mi_dsi_bridge_pre_enable,
+#endif
 	.enable       = dsi_bridge_enable,
 	.disable      = dsi_bridge_disable,
+#ifndef CONFIG_MACH_XIAOMI
+	.post_disable = dsi_bridge_post_disable,
+#else
 	.post_disable = mi_dsi_bridge_post_disable,
+#endif
 	.mode_set     = dsi_bridge_mode_set,
 };
 
@@ -1379,6 +1412,7 @@ struct dsi_bridge *dsi_drm_bridge_init(struct dsi_display *display,
 
 	encoder->bridge = &bridge->base;
 
+#ifdef CONFIG_MACH_XIAOMI
 	bridge->is_dsi_drm_bridge = true;
 	mutex_init(&bridge->lock);
 
@@ -1399,6 +1433,7 @@ struct dsi_bridge *dsi_drm_bridge_init(struct dsi_display *display,
 		init_waitqueue_head(&resume_wait_q);
 		INIT_DELAYED_WORK(&sec_panel_work, sec_panel_off_delayed_work);
 	}
+#endif
 
 	return bridge;
 error_free_bridge:
@@ -1412,6 +1447,7 @@ void dsi_drm_bridge_cleanup(struct dsi_bridge *bridge)
 	if (bridge && bridge->base.encoder)
 		bridge->base.encoder->bridge = NULL;
 
+#ifdef CONFIG_MACH_XIAOMI
 	if (bridge == gbridge) {
 		atomic_set(&prim_panel_is_on, false);
 		cancel_delayed_work_sync(&prim_panel_work);
@@ -1423,6 +1459,7 @@ void dsi_drm_bridge_cleanup(struct dsi_bridge *bridge)
 		wakeup_source_remove(sec_panel_wakelock);
 		wakeup_source_destroy(sec_panel_wakelock);
 	}
+#endif
 
 	kfree(bridge);
 }

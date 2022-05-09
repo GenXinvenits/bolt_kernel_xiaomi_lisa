@@ -3,7 +3,6 @@
  * CPUFreq governor based on scheduler-provided CPU utilization data.
  *
  * Copyright (C) 2016, Intel Corporation
- * Copyright (C) 2021 XiaoMi, Inc.
  * Author: Rafael J. Wysocki <rafael.j.wysocki@intel.com>
  */
 
@@ -297,13 +296,14 @@ static unsigned int get_next_freq(struct sugov_policy *sg_policy,
 	struct cpufreq_policy *policy = sg_policy->policy;
 	unsigned int freq = arch_scale_freq_invariant() ?
 				policy->cpuinfo.max_freq : policy->cur;
+	unsigned long next_freq = 0;
 
-        unsigned long next_freq = 0;
-        trace_android_vh_map_util_freq(util, freq, max, &next_freq);
-        if (next_freq)
-                freq = next_freq;
-        else
-                freq = map_util_freq(util, freq, max);
+	trace_android_vh_map_util_freq(util, freq, max, &next_freq);
+	if (next_freq)
+		freq = next_freq;
+	else
+		freq = map_util_freq(util, freq, max);
+
 	trace_sugov_next_freq(policy->cpu, util, max, freq);
 	if (freq == sg_policy->cached_raw_freq && !sg_policy->need_freq_update)
 		return sg_policy->next_freq;
@@ -1039,9 +1039,17 @@ static struct attribute *sugov_attrs[] = {
 };
 ATTRIBUTE_GROUPS(sugov);
 
+static void sugov_tunables_free(struct kobject *kobj)
+{
+	struct gov_attr_set *attr_set = container_of(kobj, struct gov_attr_set, kobj);
+
+	kfree(to_sugov_tunables(attr_set));
+}
+
 static struct kobj_type sugov_tunables_ktype = {
 	.default_groups = sugov_groups,
 	.sysfs_ops = &governor_sysfs_ops,
+	.release = &sugov_tunables_free,
 };
 
 /********************** cpufreq governor interface *********************/
@@ -1069,7 +1077,7 @@ static void sugov_policy_free(struct sugov_policy *sg_policy)
 static int sugov_kthread_create(struct sugov_policy *sg_policy)
 {
 	struct task_struct *thread;
-	struct sched_param param = { .sched_priority = MAX_USER_RT_PRIO / 2 };
+	struct sched_param param = { .sched_priority = MAX_USER_RT_PRIO - 1 };
 	struct cpufreq_policy *policy = sg_policy->policy;
 	int ret;
 
@@ -1154,12 +1162,10 @@ static void sugov_tunables_save(struct cpufreq_policy *policy,
 	cached->down_rate_limit_us = tunables->down_rate_limit_us;
 }
 
-static void sugov_tunables_free(struct sugov_tunables *tunables)
+static void sugov_clear_global_tunables(void)
 {
 	if (!have_governor_per_policy())
 		global_tunables = NULL;
-
-	kfree(tunables);
 }
 
 static void sugov_tunables_restore(struct cpufreq_policy *policy)
@@ -1266,7 +1272,7 @@ out:
 fail:
 	kobject_put(&tunables->attr_set.kobj);
 	policy->governor_data = NULL;
-	sugov_tunables_free(tunables);
+	sugov_clear_global_tunables();
 
 stop_kthread:
 	sugov_kthread_stop(sg_policy);
@@ -1294,7 +1300,7 @@ static void sugov_exit(struct cpufreq_policy *policy)
 	policy->governor_data = NULL;
 	if (!count) {
 		sugov_tunables_save(policy, tunables);
-		sugov_tunables_free(tunables);
+		sugov_clear_global_tunables();
 	}
 
 	mutex_unlock(&global_tunables_lock);
@@ -1391,7 +1397,7 @@ static void sugov_limits(struct cpufreq_policy *policy)
 static struct cpufreq_governor schedutil_gov = {
 	.name			= "schedutil",
 	.owner			= THIS_MODULE,
-	.dynamic_switching	= true,
+	.flags			= CPUFREQ_GOV_DYNAMIC_SWITCHING,
 	.init			= sugov_init,
 	.exit			= sugov_exit,
 	.start			= sugov_start,
@@ -1406,8 +1412,4 @@ struct cpufreq_governor *cpufreq_default_governor(void)
 }
 #endif
 
-static int __init sugov_register(void)
-{
-	return cpufreq_register_governor(&schedutil_gov);
-}
-core_initcall(sugov_register);
+cpufreq_governor_init(schedutil_gov);

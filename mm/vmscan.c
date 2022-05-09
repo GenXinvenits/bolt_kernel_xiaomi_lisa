@@ -3,7 +3,6 @@
  *  linux/mm/vmscan.c
  *
  *  Copyright (C) 1991, 1992, 1993, 1994  Linus Torvalds
- *  Copyright (C) 2021 XiaoMi, Inc.
  *
  *  Swap reorganised 29.12.95, Stephen Tweedie.
  *  kswapd added: 7.1.96  sct
@@ -90,9 +89,12 @@ struct scan_control {
 	unsigned int may_swap:1;
 
 	/*
-	 * Cgroups are not reclaimed below their configured memory.low,
-	 * unless we threaten to OOM. If any cgroups are skipped due to
-	 * memory.low and nothing was reclaimed, go back for memory.low.
+	 * Cgroup memory below memory.low is protected as long as we
+	 * don't threaten to OOM. If any cgroup is reclaimed at
+	 * reduced force or passed over entirely due to its memory.low
+	 * setting (memcg_low_skipped), and nothing is reclaimed as a
+	 * result, then go back for one more cycle that reclaims the protected
+	 * memory (memcg_low_reclaim) to avert OOM.
 	 */
 	unsigned int memcg_low_reclaim:1;
 	unsigned int memcg_low_skipped:1;
@@ -2523,14 +2525,14 @@ out:
 	for_each_evictable_lru(lru) {
 		int file = is_file_lru(lru);
 		unsigned long lruvec_size;
+		unsigned long low, min;
 		unsigned long scan;
-		unsigned long protection;
 
 		lruvec_size = lruvec_lru_size(lruvec, lru, sc->reclaim_idx);
-		protection = mem_cgroup_protection(memcg,
-						   sc->memcg_low_reclaim);
+		mem_cgroup_protection(sc->target_mem_cgroup, memcg,
+				      &min, &low);
 
-		if (protection) {
+		if (min || low) {
 			/*
 			 * Scale a cgroup's reclaim pressure by proportioning
 			 * its current usage to its memory.low or memory.min
@@ -2561,12 +2563,21 @@ out:
 			 * hard protection.
 			 */
 			unsigned long cgroup_size = mem_cgroup_size(memcg);
+			unsigned long protection;
+
+			/* memory.low scaling, make sure we retry before OOM */
+			if (!sc->memcg_low_reclaim && low > min) {
+				protection = low;
+				sc->memcg_low_skipped = 1;
+			} else {
+				protection = min;
+			}
 
 			/* Avoid TOCTOU with earlier protection check */
 			cgroup_size = max(cgroup_size, protection);
 
 			scan = lruvec_size - lruvec_size * protection /
-				cgroup_size;
+				(cgroup_size + 1);
 
 			/*
 			 * Minimally target SWAP_CLUSTER_MAX pages to keep
@@ -2890,7 +2901,7 @@ static bool shrink_node(pg_data_t *pgdat, struct scan_control *sc)
 			/* Record the group's reclaim efficiency */
 			vmpressure(sc->gfp_mask, memcg, false,
 				   sc->nr_scanned - scanned,
-				   sc->nr_reclaimed - reclaimed);
+				   sc->nr_reclaimed - reclaimed, sc->order);
 
 		} while ((memcg = mem_cgroup_iter(root, memcg, NULL)));
 
@@ -2902,7 +2913,7 @@ static bool shrink_node(pg_data_t *pgdat, struct scan_control *sc)
 		/* Record the subtree's reclaim efficiency */
 		vmpressure(sc->gfp_mask, sc->target_mem_cgroup, true,
 			   sc->nr_scanned - nr_scanned,
-			   sc->nr_reclaimed - nr_reclaimed);
+			   sc->nr_reclaimed - nr_reclaimed, sc->order);
 
 		if (sc->nr_reclaimed - nr_reclaimed)
 			reclaimable = true;
@@ -3154,7 +3165,7 @@ retry:
 
 	do {
 		vmpressure_prio(sc->gfp_mask, sc->target_mem_cgroup,
-				sc->priority);
+				sc->priority, sc->order);
 		sc->nr_scanned = 0;
 		shrink_zones(zonelist, sc);
 
@@ -3202,7 +3213,7 @@ retry:
 	return 0;
 }
 
-static bool allow_direct_reclaim(pg_data_t *pgdat)
+static bool allow_direct_reclaim(pg_data_t *pgdat, bool using_kswapd)
 {
 	struct zone *zone;
 	unsigned long pfmemalloc_reserve = 0;
@@ -3230,6 +3241,10 @@ static bool allow_direct_reclaim(pg_data_t *pgdat)
 		return true;
 
 	wmark_ok = free_pages > pfmemalloc_reserve / 2;
+
+	/* The throttled direct reclaimer is now a kswapd waiter */
+	if (unlikely(!using_kswapd && !wmark_ok))
+		atomic_long_inc(&kswapd_waiters);
 
 	/* kswapd must be awake if processes are being throttled */
 	if (!wmark_ok && waitqueue_active(&pgdat->kswapd_wait)) {
@@ -3296,7 +3311,7 @@ static bool throttle_direct_reclaim(gfp_t gfp_mask, struct zonelist *zonelist,
 
 		/* Throttle based on the first usable node */
 		pgdat = zone->zone_pgdat;
-		if (allow_direct_reclaim(pgdat))
+		if (allow_direct_reclaim(pgdat, gfp_mask & __GFP_KSWAPD_RECLAIM))
 			goto out;
 		break;
 	}
@@ -3318,16 +3333,18 @@ static bool throttle_direct_reclaim(gfp_t gfp_mask, struct zonelist *zonelist,
 	 */
 	if (!(gfp_mask & __GFP_FS)) {
 		wait_event_interruptible_timeout(pgdat->pfmemalloc_wait,
-			allow_direct_reclaim(pgdat), HZ);
+			allow_direct_reclaim(pgdat, true), HZ);
 
 		goto check_pending;
 	}
 
 	/* Throttle until kswapd wakes the process */
 	wait_event_killable(zone->zone_pgdat->pfmemalloc_wait,
-		allow_direct_reclaim(pgdat));
+		allow_direct_reclaim(pgdat, true));
 
 check_pending:
+	if (unlikely(!(gfp_mask & __GFP_KSWAPD_RECLAIM)))
+		atomic_long_dec(&kswapd_waiters);
 	if (fatal_signal_pending(current))
 		return true;
 
@@ -3788,14 +3805,15 @@ restart:
 		 * able to safely make forward progress. Wake them
 		 */
 		if (waitqueue_active(&pgdat->pfmemalloc_wait) &&
-				allow_direct_reclaim(pgdat))
+				allow_direct_reclaim(pgdat, true))
 			wake_up_all(&pgdat->pfmemalloc_wait);
 
 		/* Check if kswapd should be suspending */
 		__fs_reclaim_release();
 		ret = try_to_freeze();
 		__fs_reclaim_acquire();
-		if (ret || kthread_should_stop())
+		if (ret || kthread_should_stop() ||
+		    !atomic_long_read(&kswapd_waiters))
 			break;
 
 		/*
@@ -4095,8 +4113,9 @@ void wakeup_kswapd(struct zone *zone, gfp_t gfp_flags, int order,
 	wake_up_interruptible(&pgdat->kswapd_wait);
 }
 
-#ifdef CONFIG_COMPACTION
-static long reclaim_setcpuaffinity(struct task_struct *task, struct cpumask *newmask, struct cpumask *prevmask)
+#if defined(CONFIG_COMPACTION) && defined(CONFIG_MACH_XIAOMI)
+static long reclaim_setcpuaffinity(struct task_struct *task, struct cpumask *newmask,
+			struct cpumask *prevmask)
 {
 	long rc = -1;
 
@@ -4107,13 +4126,16 @@ static long reclaim_setcpuaffinity(struct task_struct *task, struct cpumask *new
 
 	if (newmask && !cpumask_equal(newmask, &task->cpus_mask)) {
 		cpumask_t cpumask_temp;
+
 		cpumask_and(&cpumask_temp, newmask, cpu_online_mask);
-		if (0 == cpumask_weight(&cpumask_temp))
+		if (cpumask_weight(&cpumask_temp) == 0)
 			return rc;
+
 		rc = sched_setaffinity(task->pid, newmask);
 		if (rc != 0)
 			pr_err("%s sched_setaffinity() failed", __func__);
 	}
+
 	return rc;
 }
 
@@ -4128,9 +4150,10 @@ static long reclaim_setcpuaffinity(struct task_struct *task, struct cpumask *new
 unsigned long reclaim_all_pages(unsigned long nr_to_reclaim)
 {
 	DECLARE_BITMAP(cpu_bitmap, NR_CPUS);
-	struct cpumask prevmask = {0};
 	long rc = 0;
-
+	unsigned long nr_reclaimed;
+	unsigned int noreclaim_flag;
+	struct cpumask prevmask = {0};
 	struct scan_control sc = {
 		.nr_to_reclaim = nr_to_reclaim,
 		.gfp_mask = GFP_HIGHUSER_MOVABLE,
@@ -4141,8 +4164,6 @@ unsigned long reclaim_all_pages(unsigned long nr_to_reclaim)
 		.may_swap = 1,
 	};
 	struct zonelist *zonelist = node_zonelist(numa_node_id(), sc.gfp_mask);
-	unsigned long nr_reclaimed;
-	unsigned int noreclaim_flag;
 
 	fs_reclaim_acquire(sc.gfp_mask);
 	noreclaim_flag = memalloc_noreclaim_save();
@@ -4150,10 +4171,10 @@ unsigned long reclaim_all_pages(unsigned long nr_to_reclaim)
 
 	cpu_bitmap[0] = 15;  // 0-3
 	rc = reclaim_setcpuaffinity(current, to_cpumask(cpu_bitmap), &prevmask);
+
 	nr_reclaimed = do_try_to_free_pages(zonelist, &sc);
-	if (rc == 0) {
+	if (rc == 0)
 		reclaim_setcpuaffinity(current, &prevmask, NULL);
-	}
 
 	set_task_reclaim_state(current, NULL);
 	memalloc_noreclaim_restore(noreclaim_flag);
@@ -4178,7 +4199,8 @@ int sysctl_reclaim_pages_handler(struct ctl_table *table, int write,
 	ret = proc_doulongvec_minmax(table, write, buffer, length, ppos);
 	if (!ret && write) {
 		nr_reclaimed = reclaim_all_pages(sysctl_reclaim_pages);
-		pr_err("%s (%d): reclaim_pages: %ld %ld\n", current->comm, task_pid_nr(current), sysctl_reclaim_pages, nr_reclaimed);
+		pr_err("%s (%d): reclaim_pages: %ld %ld\n", current->comm,
+			task_pid_nr(current), sysctl_reclaim_pages, nr_reclaimed);
 	}
 
 	return ret;

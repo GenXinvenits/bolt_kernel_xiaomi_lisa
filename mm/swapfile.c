@@ -221,6 +221,19 @@ offset_to_swap_extent(struct swap_info_struct *sis, unsigned long offset)
 	BUG();
 }
 
+sector_t swap_page_sector(struct page *page)
+{
+	struct swap_info_struct *sis = page_swap_info(page);
+	struct swap_extent *se;
+	sector_t sector;
+	pgoff_t offset;
+
+	offset = __page_file_index(page);
+	se = offset_to_swap_extent(sis, offset);
+	sector = se->start_block + (offset - se->start_page);
+	return sector << (PAGE_SHIFT - 9);
+}
+
 /*
  * swap allocation tell device that a cluster of swap can now be discarded,
  * to allow the swap device to optimize its wear-levelling.
@@ -2070,7 +2083,7 @@ static int unuse_mm(struct mm_struct *mm, unsigned int type,
 	struct vm_area_struct *vma;
 	int ret = 0;
 
-	down_read(&mm->mmap_sem);
+	mmap_read_lock(mm);
 	for (vma = mm->mmap; vma; vma = vma->vm_next) {
 		if (vma->anon_vma) {
 			ret = unuse_vma(vma, type, frontswap,
@@ -2080,7 +2093,7 @@ static int unuse_mm(struct mm_struct *mm, unsigned int type,
 		}
 		cond_resched();
 	}
-	up_read(&mm->mmap_sem);
+	mmap_read_unlock(mm);
 	return ret;
 }
 

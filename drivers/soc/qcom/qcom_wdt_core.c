@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  */
 #include <linux/irqdomain.h>
 #include <linux/delay.h>
@@ -32,8 +31,9 @@
 #include <linux/irq_cpustat.h>
 #include <linux/kallsyms.h>
 #include <linux/kdebug.h>
+#ifdef CONFIG_QGKI_SYSTEM
 #include <linux/sched/debug.h>
-
+#endif
 
 #define MASK_SIZE        32
 #define COMPARE_RET      -1
@@ -45,23 +45,6 @@ typedef int (*compare_t) (const void *lhs, const void *rhs);
 char *boot_log_buf;
 unsigned int boot_log_buf_size;
 bool copy_early_boot_log = true;
-#endif
-
-#ifdef CONFIG_FIRE_WATCHDOG
-static int wdog_fire;
-static int wdog_fire_set(const char *val, const struct kernel_param *kp);
-module_param_call(wdog_fire, wdog_fire_set, param_get_int,
-		&wdog_fire, 0644);
-
-static int wdog_fire_set(const char *val, const struct kernel_param *kp)
-{
-	printk(KERN_INFO "trigger wdog_fire_set\n");
-	local_irq_disable();
-	while (1)
-	;
-
-	return 0;
-}
 #endif
 
 static struct msm_watchdog_data *wdog_data;
@@ -391,6 +374,8 @@ int qcom_wdt_pet_suspend(struct device *dev)
 	wdog_dd->freeze_in_progress = true;
 	spin_unlock(&wdog_dd->freeze_lock);
 	del_timer_sync(&wdog_dd->pet_timer);
+	if (wdog_dd->user_pet_enabled)
+		del_timer_sync(&wdog_dd->user_pet_timer);
 	return 0;
 }
 EXPORT_SYMBOL(qcom_wdt_pet_suspend);
@@ -410,6 +395,11 @@ int qcom_wdt_pet_resume(struct device *dev)
 	spin_lock(&wdog_dd->freeze_lock);
 	wdog_dd->pet_timer.expires = jiffies + delay_time;
 	add_timer(&wdog_dd->pet_timer);
+	if (wdog_dd->user_pet_enabled) {
+		delay_time = msecs_to_jiffies(wdog_dd->bark_time + 3 * 1000);
+		wdog_dd->user_pet_timer.expires = jiffies + delay_time;
+		add_timer(&wdog_dd->user_pet_timer);
+	}
 	wdog_dd->freeze_in_progress = false;
 	spin_unlock(&wdog_dd->freeze_lock);
 	return 0;
@@ -428,7 +418,6 @@ static void qcom_wdt_reset_on_oops(struct msm_watchdog_data *wdog_dd,
 			int timeout)
 {
 	wdog_dd->ops->reset_wdt(wdog_dd);
-	pr_info("Reset wdt before oops\n");
 	wdog_dd->ops->set_bark_time((timeout + 10) * 1000,
 					wdog_dd);
 	wdog_dd->ops->set_bite_time((timeout + 10) * 1000,
@@ -501,6 +490,8 @@ static void qcom_wdt_disable(struct msm_watchdog_data *wdog_dd)
 	qcom_wdt_unregister_die_notifier(wdog_dd);
 	unregister_restart_handler(&wdog_dd->restart_blk);
 	del_timer_sync(&wdog_dd->pet_timer);
+	if (wdog_dd->user_pet_enabled)
+		del_timer_sync(&wdog_dd->user_pet_timer);
 	wdog_dd->ops->disable_wdt(wdog_dd);
 	dev_err(wdog_dd->dev, "QCOM Apps Watchdog deactivated\n");
 }
@@ -604,12 +595,20 @@ static ssize_t qcom_wdt_user_pet_enabled_set(struct device *dev,
 {
 	struct msm_watchdog_data *wdog_dd = dev_get_drvdata(dev);
 	int ret;
+	unsigned long delay_time = 0;
+	bool already_enabled = wdog_dd->user_pet_enabled;
 
 	ret = strtobool(buf, &wdog_dd->user_pet_enabled);
 	if (ret) {
 		dev_err(wdog_dd->dev, "invalid user input\n");
 		return ret;
 	}
+
+	delay_time = msecs_to_jiffies(wdog_dd->bark_time + 3 * 1000);
+	if (wdog_dd->user_pet_enabled)
+		mod_timer(&wdog_dd->user_pet_timer, jiffies + delay_time);
+	else if (already_enabled)
+		del_timer_sync(&wdog_dd->user_pet_timer);
 
 	__qcom_wdt_user_pet(wdog_dd);
 
@@ -670,6 +669,15 @@ static void qcom_wdt_pet_task_wakeup(struct timer_list *t)
 	wdog_dd->timer_expired = true;
 	wdog_dd->timer_fired = sched_clock();
 	wake_up(&wdog_dd->pet_complete);
+}
+static void qcom_wdt_user_pet_bite(struct timer_list *t)
+{
+	struct msm_watchdog_data *wdog_dd =
+		from_timer(wdog_dd, t, user_pet_timer);
+	if (!wdog_dd->user_pet_complete) {
+		dev_info(wdog_dd->dev, "QCOM Apps Watchdog user pet timeout!\n");
+		qcom_wdt_trigger_bite();
+	}
 }
 
 static __ref int qcom_wdt_kthread(void *arg)
@@ -772,6 +780,8 @@ int qcom_wdt_remove(struct platform_device *pdev)
 	irq_dispose_mapping(wdog_dd->bark_irq);
 	dev_info(wdog_dd->dev, "QCOM Apps Watchdog Exit - Deactivated\n");
 	del_timer_sync(&wdog_dd->pet_timer);
+	if (wdog_dd->user_pet_enabled)
+		del_timer_sync(&wdog_dd->user_pet_timer);
 	wdog_dd->timer_expired = true;
 	wdog_dd->user_pet_complete = true;
 	kthread_stop(wdog_dd->watchdog_task);
@@ -817,11 +827,11 @@ static irqreturn_t qcom_wdt_bark_handler(int irq, void *dev_id)
 	unsigned long long t = sched_clock();
 
 	nanosec_rem = do_div(t, 1000000000);
-	dev_err(wdog_dd->dev, "QCOM Apps Watchdog bark! Now = %lu.%06lu\n",
+	dev_info(wdog_dd->dev, "QCOM Apps Watchdog bark! Now = %lu.%06lu\n",
 			(unsigned long) t, nanosec_rem / 1000);
 
 	nanosec_rem = do_div(wdog_dd->last_pet, 1000000000);
-	dev_err(wdog_dd->dev, "QCOM Apps Watchdog last pet at %lu.%06lu\n",
+	dev_info(wdog_dd->dev, "QCOM Apps Watchdog last pet at %lu.%06lu\n",
 			(unsigned long) wdog_dd->last_pet, nanosec_rem / 1000);
 #ifdef CONFIG_QGKI_SYSTEM
 	console_verbose();
@@ -900,7 +910,11 @@ static int qcom_wdt_init(struct msm_watchdog_data *wdog_dd,
 	atomic_set(&wdog_dd->irq_counts_running, 0);
 	delay_time = msecs_to_jiffies(wdog_dd->pet_time);
 	wdog_dd->ops->set_bark_time(wdog_dd->bark_time, wdog_dd);
+#ifndef CONFIG_MACH_XIAOMI
+	wdog_dd->ops->set_bite_time(wdog_dd->bark_time + 3 * 1000, wdog_dd);
+#else
 	wdog_dd->ops->set_bite_time(wdog_dd->bark_time + 10 * 1000, wdog_dd);
+#endif
 	wdog_dd->panic_blk.priority = INT_MAX - 1;
 	wdog_dd->panic_blk.notifier_call = qcom_wdt_panic_handler;
 	atomic_notifier_chain_register(&panic_notifier_list,
@@ -920,6 +934,7 @@ static int qcom_wdt_init(struct msm_watchdog_data *wdog_dd,
 	timer_setup(&wdog_dd->pet_timer, qcom_wdt_pet_task_wakeup, 0);
 	wdog_dd->pet_timer.expires = jiffies + delay_time;
 	add_timer(&wdog_dd->pet_timer);
+	timer_setup(&wdog_dd->user_pet_timer, qcom_wdt_user_pet_bite, 0);
 	val = BIT(EN);
 	if (wdog_dd->wakeup_irq_enable)
 		val |= BIT(UNMASKED_INT_EN);
@@ -998,6 +1013,11 @@ int qcom_wdt_register(struct platform_device *pdev,
 {
 	struct md_region md_entry;
 	int ret;
+
+	if (!pdev || !wdog_dd || !wdog_dd_name) {
+		pr_err("wdt_register input incorrect\n");
+		return -EINVAL;
+	}
 
 	qcom_wdt_dt_to_pdata(pdev, wdog_dd);
 	wdog_data = wdog_dd;

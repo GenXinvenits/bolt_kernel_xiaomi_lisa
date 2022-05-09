@@ -1,20 +1,15 @@
-/**
-* Copyright MI
-* Copyright (C) 2021 XiaoMi, Inc.
-*
-*/
-/* #define DEBUG */
+/*
+ * Copyright MI
+ * Copyright (C) 2021 XiaoMi, Inc.
+ *
+ */
+
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/version.h>
-/*  includes the file structure, that is, file open read close */
 #include <linux/fs.h>
-
-/* include the character device, makes cdev avilable */
 #include <linux/cdev.h>
 #include <linux/semaphore.h>
-
-/* includes copy_user vice versa */
 #include <linux/uaccess.h>
 #include <linux/spinlock.h>
 #include <linux/slab.h>
@@ -24,7 +19,6 @@
 #include <linux/types.h>
 #include <linux/kdev_t.h>
 #include <linux/device.h>
-
 #include <linux/pm_wakeup.h>
 #include <linux/kfifo.h>
 #include <linux/poll.h>
@@ -36,31 +30,11 @@
 #include <mius/mius_mixer_controls.h>
 #include <dsp/apr_mius.h>
 
-
-/* Alternative mechanism to load calibration data.
-* Read calibration data during driver initialization
-* and send message to the DSP
-*
-* #define MIUS_LOAD_CALIBRATION_DATA_FROM_FILESYSTEM 1
-*/
-#ifdef MIUS_LOAD_CALIBRATION_DATA_FROM_FILESYSTEM
-#include <linux/syscalls.h>
-#include <linux/fcntl.h>
-#include <asm/uaccess.h>
-#endif
-
 static struct mius_device *mius_devices;
-
-/* Global variable for the device class*/
-struct class *mius_class;
-
-typedef uint32_t el_fifo_size_t;
-
-/* Major number provided by the kernel*/
 static dev_t mius_major;
-
 static struct wakeup_source *wake_source;
-
+struct class *mius_class;
+typedef uint32_t el_fifo_size_t;
 
 void mius_data_cancel(struct mius_data *mius_data)
 {
@@ -98,7 +72,6 @@ void mius_data_update_debug_counters(struct mius_data
 		mius_data->isr_fifo_discard;
 }
 
-
 /* spin lock for isr must be held prior to calling */
 static void mius_data_flush_isr_fifo(struct mius_data
 	*mius_data)
@@ -122,7 +95,6 @@ static void mius_data_isr_fifo_pop(struct mius_data
 	if (size != fifo_result)
 		MI_PRINT_E("failed to pop element");
 }
-
 
 int mius_notify_gain_change_msg(int component_id, int gaindb)
 {
@@ -177,7 +149,6 @@ static int device_open(struct inode *inode, struct file *filp)
 	dev->opened = 1;
 	return 0;
 }
-
 
 int mius_data_initialize(struct mius_data
 	*mius_data, size_t queue_size,
@@ -280,8 +251,6 @@ size_t mius_data_pop(struct mius_data
 	return (size_t)MIUS_MSG_BUF_SIZE;
 }
 
-
-
 /* push data to specific device or all devices */
 int mius_data_push(int deviceid,
 	const char *buffer,
@@ -363,7 +332,6 @@ int mius_data_push(int deviceid,
 			}
 		}
 
-
 		if (zeros_to_pad > 0) {
 			fifo_result = kfifo_in(
 				&mius_data->fifo_isr, zero_pad_buffer,
@@ -381,7 +349,6 @@ int mius_data_push(int deviceid,
 				continue;
 			}
 		}
-
 
 		++mius_data->isr_write_total;
 		spin_unlock_irqrestore(
@@ -403,7 +370,6 @@ int mius_close_port(int portid)
 	return mius_io_close_port(portid);
 }
 
-
 int32_t mius_data_write(uint32_t message_id,
 	const char *data, size_t data_size)
 {
@@ -414,25 +380,14 @@ int32_t mius_data_write(uint32_t message_id,
 	err_dsp = mius_data_io_write(message_id, data, data_size);
 	if (err_dsp)
 		MI_PRINT_E("Failed write to DSP");
-	return err_dsp;
 
-	/*
-	* err_us = 0;
-	* err_us = mius_userspace_ctrl_write(message_id, data, data_size);
-	* if(err_us){
-	*	MI_PRINT_E("Failed write to user space");
-	*}
-	*
-	*return (err_dsp | err_us);
-	*/
+	return err_dsp;
 }
 
-
-
-/**
-*
-* @return Number of bytes read.
-*/
+/*
+ *
+ * @return Number of bytes read.
+ */
 static ssize_t device_read(struct file *fp, char __user *buff,
 	size_t length, loff_t *ppos)
 {
@@ -448,10 +403,10 @@ static ssize_t device_read(struct file *fp, char __user *buff,
 	return bytes_read;
 }
 
-/**
-*
-* @return number of bytes actually written
-*/
+/*
+ *
+ * @return number of bytes actually written
+ */
 static ssize_t device_write(struct file *fp, const char *buff,
 	size_t length, loff_t *ppos)
 {
@@ -464,7 +419,6 @@ static ssize_t device_write(struct file *fp, const char *buff,
 
 	return ret_val >= 0 ? (ssize_t)length : 0;
 }
-
 
 static long device_ioctl(struct file *fp, unsigned int number,
 	unsigned long param)
@@ -518,7 +472,6 @@ static long device_ioctl(struct file *fp, unsigned int number,
 	return 0;
 }
 
-
 static unsigned int device_poll(struct file *file,
 	struct poll_table_struct *poll_table)
 {
@@ -538,7 +491,6 @@ static unsigned int device_poll(struct file *file,
 
 	return mask;
 }
-
 
 static int device_close(struct inode *inode, struct file *filp)
 {
@@ -574,7 +526,6 @@ static const struct file_operations mius_fops = {
 	.unlocked_ioctl = device_ioctl, /* IOCTL calls */
 	.release = device_close, /*to close the device*/
 };
-
 
 static int mius_device_initialize(struct mius_device
 	*mius_device, int minor, struct class *class)
@@ -653,48 +604,6 @@ static void mius_driver_cleanup(int devices_to_destroy)
 		MKDEV(mius_major, 0), MIUS_NUM_DEVICES);
 }
 
-
-
-#ifdef MIUS_LOAD_CALIBRATION_DATA_FROM_FILESYSTEM
-
-#define MIUS_CALIBRATION_MAX_DATA_SIZE (MIUS_CALIBRATION_V2_DATA_SIZE + MIUS_CALIBRATION_DATA_SIZE)
-static unsigned char calibration_data[MIUS_CALIBRATION_MAX_DATA_SIZE];
-static char *calibration_filename = "/persist/audio/mius_calibration";
-
-/* function to load the calibration from a file (if possible) */
-static size_t load_calibration_data(char *filename)
-{
-	size_t bytes_read = 0;
-	int rc = -ENOENT;
-
-	rc = kernel_read_file_from_path(filename, calibration_data, &bytes_read,
-					MIUS_CALIBRATION_MAX_DATA_SIZE,
-					READING_FIRMWARE);
-	if (rc) {
-		if (rc == -ENOENT)
-			MI_PRINT_E("loading %s failed with error %d\n",
-				filename, rc);
-		else
-			MI_PRINT_E("loading %s failed with error %d\n",
-				filename, rc);
-	}
-	MI_PRINT_I("loading %s\n", filename);
-
-
-	return bytes_read;
-}
-
-static int32_t mius_send_calibration_to_engine(size_t calib_data_size)
-{
-    mius_set_calibration_data(calibration_data, calib_data_size);
-	return mius_data_write(
-		MIUS_ULTRASOUND_SET_PARAMS,
-		(const char *)calibration_data, calib_data_size);
-}
-
-#endif
-
-
 int __init mius_driver_init(void)
 {
 	int err;
@@ -763,14 +672,6 @@ int __init mius_driver_init(void)
 		goto fail;
 	}
 
-#ifdef MIUS_LOAD_CALIBRATION_DATA_FROM_FILESYSTEM
-	/* Code to send calibration to engine */
-	{
-		size_t calib_data_size = load_calibration_data(calibration_filename);
-		if (calib_data_size > 0)
-			mius_send_calibration_to_engine(calib_data_size);
-	}
-#endif
 	return 0;
 
 fail:

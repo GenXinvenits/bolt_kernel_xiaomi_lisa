@@ -3,7 +3,6 @@
  * ION Memory Allocator - buffer interface
  *
  * Copyright (c) 2019, Google, Inc.
- * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 #include <linux/mm.h>
@@ -11,7 +10,7 @@
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
 #include <linux/dma-noncoherent.h>
-#if IS_ENABLED(CONFIG_MIMISC_MC)
+#ifdef CONFIG_MIMISC_MC
 #include <linux/memcontrol.h>
 #endif
 
@@ -39,7 +38,7 @@ static void track_buffer_destroyed(struct ion_buffer *buffer)
 static struct ion_buffer *ion_buffer_create(struct ion_heap *heap,
 					    struct ion_device *dev,
 					    unsigned long len,
-#if IS_ENABLED(CONFIG_MIMISC_MC)
+#ifdef CONFIG_MIMISC_MC
 					    unsigned long flags,
 					    unsigned int id)
 #else
@@ -92,7 +91,7 @@ static struct ion_buffer *ion_buffer_create(struct ion_heap *heap,
 
 	INIT_LIST_HEAD(&buffer->attachments);
 
-#if IS_ENABLED(CONFIG_MIMISC_MC)
+#ifdef CONFIG_MIMISC_MC
 	memcg_misc_charge_id(sg_page(buffer->sg_table->sgl), 0,
 				PAGE_ALIGN(len) >> PAGE_SHIFT,
 				MEMCG_ION_TYPE, id);
@@ -177,7 +176,7 @@ struct ion_buffer *ion_buffer_alloc(struct ion_device *dev, size_t len,
 		/* if the caller didn't specify this heap id */
 		if (!((1 << heap->id) & heap_id_mask))
 			continue;
-#if IS_ENABLED(CONFIG_MIMISC_MC)
+#ifdef CONFIG_MIMISC_MC
 		buffer = ion_buffer_create(heap, dev, len, flags, -1);
 #else
 		buffer = ion_buffer_create(heap, dev, len, flags);
@@ -196,7 +195,7 @@ struct ion_buffer *ion_buffer_alloc(struct ion_device *dev, size_t len,
 	return buffer;
 }
 
-#if IS_ENABLED(CONFIG_MIMISC_MC)
+#ifdef CONFIG_MIMISC_MC
 struct ion_buffer *ion_buffer_alloc_id(struct ion_device *dev, size_t len,
 					unsigned int heap_id_mask,
 					unsigned int flags,
@@ -314,7 +313,7 @@ int ion_buffer_destroy(struct ion_device *dev, struct ion_buffer *buffer)
 	heap = buffer->heap;
 	track_buffer_destroyed(buffer);
 
-#if IS_ENABLED(CONFIG_MIMISC_MC)
+#ifdef CONFIG_MIMISC_MC
 	memcg_misc_uncharge(sg_page(buffer->sg_table->sgl),
 					PAGE_ALIGN(buffer->size) >> PAGE_SHIFT,
 					MEMCG_ION_TYPE);

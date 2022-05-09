@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 #include <linux/init.h>
@@ -10,13 +9,17 @@
 #include <soc/qcom/subsystem_notif.h>
 #include <soc/qcom/ramdump.h>
 #include <linux/soc/qcom/smem.h>
+#ifdef CONFIG_MACH_XIAOMI
 #include <linux/workqueue.h>
 
 #define MAX_SSR_REASON_LEN	130U
+#endif
+
 #define SMEM_SSR_REASON_MSS0	421
 #define SMEM_SSR_DATA_MSS0	611
 #define SMEM_MODEM	1
 
+#ifdef CONFIG_MACH_XIAOMI
 #define STR_NV_SIGNATURE_DESTROYED "CRITICAL_DATA_CHECK_FAILED"
 
 static struct kobject *checknv_kobj;
@@ -89,6 +92,8 @@ static DECLARE_DELAYED_WORK(create_kobj_work, checknv_kobj_create);
 static DECLARE_WORK(clean_kobj_work, checknv_kobj_clean);
 
 static char last_modem_sfr_reason[MAX_SSR_REASON_LEN] = "none";
+#endif
+
 /*
  * This program collects the data from SMEM regions whenever the modem crashes
  * and stores it in /dev/ramdump_microdump_modem so as to expose it to
@@ -141,6 +146,7 @@ static int microdump_modem_notifier_nb(struct notifier_block *nb,
 	segment[1].v_address = (void __iomem *) crash_data;
 	segment[1].size = size_data;
 
+#ifdef CONFIG_MACH_XIAOMI
 	strlcpy(last_modem_sfr_reason, crash_reason, MAX_SSR_REASON_LEN);
 	pr_err("modem subsystem failure reason: %s.\n", last_modem_sfr_reason);
 
@@ -150,6 +156,7 @@ static int microdump_modem_notifier_nb(struct notifier_block *nb,
 		schedule_delayed_work(&create_kobj_work, msecs_to_jiffies(1*1000));
 		goto out;
 	}
+#endif
 
 	ret = do_ramdump(drv->microdump_dev, segment, 2);
 	if (ret)
@@ -226,7 +233,9 @@ out:
 
 static void __exit microdump_exit(void)
 {
+#ifdef CONFIG_MACH_XIAOMI
 	schedule_work(&clean_kobj_work);
+#endif
 	microdump_modem_ssr_unregister_notifier(drv);
 	destroy_ramdump_device(drv->microdump_dev);
 	kfree(drv);

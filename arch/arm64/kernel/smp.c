@@ -4,7 +4,6 @@
  * Based on arch/arm/kernel/smp.c
  *
  * Copyright (C) 2012 ARM Ltd.
- * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 #include <linux/acpi.h>
@@ -258,7 +257,7 @@ asmlinkage notrace void secondary_start_kernel(void)
 	 * the CPU migration code to notice that the CPU is online
 	 * before we continue.
 	 */
-	pr_info("CPU%u: Booted secondary processor 0x%010lx [0x%08x]\n",
+	pr_debug("CPU%u: Booted secondary processor 0x%010lx [0x%08x]\n",
 					 cpu, (unsigned long)mpidr,
 					 read_cpuid_id());
 	update_cpu_boot_status(CPU_BOOT_SUCCESS);
@@ -347,7 +346,7 @@ void __cpu_die(unsigned int cpu)
 		pr_crit("CPU%u: cpu didn't die\n", cpu);
 		return;
 	}
-	pr_info("CPU%u: shutdown\n", cpu);
+	pr_debug("CPU%u: shutdown\n", cpu);
 
 	/*
 	 * Now that the dying CPU is beyond the point of no return w.r.t.
@@ -854,14 +853,20 @@ static DEFINE_RAW_SPINLOCK(stop_lock);
 
 static DEFINE_PER_CPU(struct pt_regs, regs_before_stop);
 
+#ifdef CONFIG_MACH_XIAOMI
 int in_long_press = 0;
+#endif
 static void local_cpu_stop(void)
 {
 	unsigned int cpu = smp_processor_id();
 	struct pt_regs *regs = get_irq_regs();
 
 	if ((system_state == SYSTEM_BOOTING ||
-	    system_state == SYSTEM_RUNNING) && (!in_long_press)) {
+	    system_state == SYSTEM_RUNNING)
+#ifdef CONFIG_MACH_XIAOMI
+		&& (!in_long_press)
+#endif
+	    ) {
 		per_cpu(regs_before_stop, cpu) = *regs;
 		raw_spin_lock(&stop_lock);
 		pr_crit("CPU%u: stopping\n", cpu);

@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 #ifndef _SDE_CONNECTOR_H_
@@ -16,7 +15,10 @@
 #include "msm_prop.h"
 #include "sde_kms.h"
 #include "sde_fence.h"
+
+#ifdef CONFIG_MACH_XIAOMI
 #include "mi_sde_connector.h"
+#endif
 
 #define SDE_CONNECTOR_NAME_SIZE	16
 #define SDE_CONNECTOR_DHDR_MEMPOOL_MAX_SIZE	SZ_32
@@ -472,6 +474,7 @@ struct sde_connector_dyn_hdr_metadata {
  * @esd_status_interval: variable to change ESD check interval in millisec
  * @panel_dead: Flag to indicate if panel has gone bad
  * @esd_status_check: Flag to indicate if ESD thread is scheduled or not
+ * @twm_en: Flag to indicate if TWM mode is enabled or not
  * @bl_scale_dirty: Flag to indicate PP BL scale value(s) is changed
  * @bl_scale: BL scale value for ABA feature
  * @bl_scale_sv: BL scale value for sunlight visibility feature
@@ -513,7 +516,10 @@ struct sde_connector {
 	int dpms_mode;
 	int lp_mode;
 	int last_panel_power_mode;
+#ifdef CONFIG_MACH_XIAOMI
 	int max_esd_check_power_mode;
+#endif
+	struct device *sysfs_dev;
 
 	struct msm_property_info property_info;
 	struct msm_property_data property_data[CONNECTOR_PROP_COUNT];
@@ -529,13 +535,16 @@ struct sde_connector {
 
 	struct backlight_device *bl_device;
 	struct sde_cdev *cdev;
+#ifdef CONFIG_MACH_XIAOMI
 	struct mi_sde_cdev *mi_cdev;
+#endif
 	struct notifier_block n;
 	unsigned long thermal_max_brightness;
 	struct delayed_work status_work;
 	u32 esd_status_interval;
 	bool panel_dead;
 	bool esd_status_check;
+	bool twm_en;
 
 	bool bl_scale_dirty;
 	u32 bl_scale;
@@ -551,6 +560,7 @@ struct sde_connector {
 	bool hdr_supported;
 
 	u32 color_enc_fmt;
+	u32 lm_mask;
 
 	u8 hdr_plus_app_ver;
 	u32 qsync_mode;
@@ -564,7 +574,9 @@ struct sde_connector {
 	u8 cmd_rx_buf[MAX_CMD_RECEIVE_SIZE];
 	int rx_len;
 
+#ifdef CONFIG_MACH_XIAOMI
 	struct mi_layer_state mi_layer_state;
+#endif
 	struct edid *cached_edid;
 };
 
@@ -756,6 +768,15 @@ static inline uint64_t sde_connector_get_lp(
 int sde_connector_set_property_for_commit(struct drm_connector *connector,
 		struct drm_atomic_state *atomic_state,
 		uint32_t property_idx, uint64_t value);
+
+/**
+ * sde_connector_post_init - update connector object with post initialization.
+ * It can update the debugfs, sysfs, entries
+ * @dev: Pointer to drm device struct
+ * @conn: Pointer to drm connector
+ * Returns: Zero on success
+ */
+int sde_connector_post_init(struct drm_device *dev, struct drm_connector *conn);
 
 /**
  * sde_connector_init - create drm connector object for a given display
@@ -1107,7 +1128,10 @@ int sde_connector_get_panel_vfp(struct drm_connector *connector,
  * @connector: Pointer to DRM connector object
  */
 int sde_connector_esd_status(struct drm_connector *connector);
+
+#ifdef CONFIG_MACH_XIAOMI
 void _sde_connector_report_panel_dead(struct sde_connector *conn,
 		bool skip_pre_kickoff);
+#endif
 
 #endif /* _SDE_CONNECTOR_H_ */

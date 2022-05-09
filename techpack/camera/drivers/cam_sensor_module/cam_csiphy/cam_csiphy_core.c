@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 #include <linux/module.h>
@@ -153,6 +152,12 @@ static void cam_csiphy_prgm_cmn_data(
 	for (csiphy_idx = 0; csiphy_idx < MAX_CSIPHY; csiphy_idx++) {
 		csiphybase = g_phy_data[csiphy_idx].base_address;
 		is_3phase = g_phy_data[csiphy_idx].is_3phase;
+
+		if (!csiphybase) {
+			CAM_DBG(CAM_CSIPHY, "CSIPHY: %d is not available in platform",
+				csiphy_idx);
+			continue;
+		}
 
 		for (i = 0; i < size; i++) {
 			csiphy_common_reg =
@@ -955,8 +960,9 @@ void cam_csiphy_shutdown(struct csiphy_device *csiphy_dev)
 		cam_csiphy_reset(csiphy_dev);
 		cam_soc_util_disable_platform_resource(soc_info, true, true);
 
-		//deleted by xiaomi
-		//cam_cpas_stop(csiphy_dev->cpas_handle);
+#ifndef CONFIG_MACH_XIAOMI
+		cam_cpas_stop(csiphy_dev->cpas_handle);
+#endif
 		csiphy_dev->csiphy_state = CAM_CSIPHY_ACQUIRE;
 	}
 
@@ -972,8 +978,9 @@ void cam_csiphy_shutdown(struct csiphy_device *csiphy_dev)
 		}
 	}
 
-	// xiaomi: force stop cpas
+#ifdef CONFIG_MACH_XIAOMI
 	cam_cpas_stop(csiphy_dev->cpas_handle);
+#endif
 	csiphy_dev->ref_count = 0;
 	csiphy_dev->acquire_count = 0;
 	csiphy_dev->start_dev_count = 0;
@@ -1180,6 +1187,12 @@ int32_t cam_csiphy_core_cfg(void *phy_dev,
 		index = csiphy_dev->acquire_count;
 		csiphy_acq_dev.device_handle =
 			cam_create_device_hdl(&bridge_params);
+		if (csiphy_acq_dev.device_handle <= 0) {
+			rc = -EFAULT;
+			CAM_ERR(CAM_CSIPHY, "Can not create device handle");
+			goto release_mutex;
+		}
+
 		csiphy_dev->csiphy_info[index].hdl_data.device_hdl =
 			csiphy_acq_dev.device_handle;
 		csiphy_dev->csiphy_info[index].hdl_data.session_hdl =

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/irq.h>
@@ -55,7 +55,6 @@
 
 #define ERR_AUTO_SUSPEND_TIMER_VAL 0x1
 
-#define SWRM_INTERRUPT_STATUS_MASK 0x1FDFD
 #define SWRM_LINK_STATUS_RETRY_CNT 100
 
 #define SWRM_ROW_48    48
@@ -1308,15 +1307,11 @@ static void swrm_disable_ports(struct swr_master *master,
 		}
 		value = ((mport->req_ch)
 					<< SWRM_DP_PORT_CTRL_EN_CHAN_SHFT);
-		dev_dbg(swrm->dev, "%s: value :%d\n", __func__, value);
 		value |= ((mport->offset2)
 					<< SWRM_DP_PORT_CTRL_OFFSET2_SHFT);
-		dev_dbg(swrm->dev, "%s: value :%d\n", __func__, value);
 		value |= ((mport->offset1)
 				<< SWRM_DP_PORT_CTRL_OFFSET1_SHFT);
-		dev_dbg(swrm->dev, "%s: value :%d\n", __func__, value);
 		value |= (mport->sinterval & 0xFF);
-		dev_dbg(swrm->dev, "%s: value :%d\n", __func__, value);
 
 		swr_master_write(swrm,
 				SWRM_DP_PORT_CTRL_BANK((i + 1), bank),
@@ -1470,12 +1465,14 @@ static void swrm_copy_data_port_config(struct swr_master *master, u8 bank)
 					SWRS_DP_SAMPLE_CONTROL_1_BANK(slv_id,
 								bank));
 
-			reg[len] = SWRM_CMD_FIFO_WR_CMD;
-			val[len++] = SWR_REG_VAL_PACK(
+			if ((port_req->sinterval >> 8)& 0xFF) {
+				reg[len] = SWRM_CMD_FIFO_WR_CMD;
+				val[len++] = SWR_REG_VAL_PACK(
 					(port_req->sinterval >> 8)& 0xFF,
 					port_req->dev_num, 0x00,
 					SWRS_DP_SAMPLE_CONTROL_2_BANK(slv_id,
 								bank));
+			}
 
 			reg[len] = SWRM_CMD_FIFO_WR_CMD;
 			val[len++] = SWR_REG_VAL_PACK(port_req->offset1,
@@ -2870,8 +2867,7 @@ static int swrm_probe(struct platform_device *pdev)
 	swrm->wlock_holders = 0;
 	swrm->pm_state = SWRM_PM_SLEEPABLE;
 	init_waitqueue_head(&swrm->pm_wq);
-	pm_qos_add_request(&swrm->pm_qos_req,
-			   PM_QOS_CPU_DMA_LATENCY,
+	cpu_latency_qos_add_request(&swrm->pm_qos_req,
 			   PM_QOS_DEFAULT_VALUE);
 
 	for (i = 0 ; i < SWR_MSTR_PORT_LEN; i++)
@@ -3038,7 +3034,7 @@ err_irq_fail:
 	mutex_destroy(&swrm->iolock);
 	mutex_destroy(&swrm->clklock);
 	mutex_destroy(&swrm->pm_lock);
-	pm_qos_remove_request(&swrm->pm_qos_req);
+	cpu_latency_qos_remove_request(&swrm->pm_qos_req);
 
 err_pdata_fail:
 err_memory_fail:
@@ -3077,7 +3073,7 @@ static int swrm_remove(struct platform_device *pdev)
 	mutex_destroy(&swrm->clklock);
 	mutex_destroy(&swrm->force_down_lock);
 	mutex_destroy(&swrm->pm_lock);
-	pm_qos_remove_request(&swrm->pm_qos_req);
+	cpu_latency_qos_remove_request(&swrm->pm_qos_req);
 	devm_kfree(&pdev->dev, swrm);
 	return 0;
 }
@@ -3789,7 +3785,7 @@ static bool swrm_lock_sleep(struct swr_mstr_ctrl *swrm)
 	mutex_lock(&swrm->pm_lock);
 	if (swrm->wlock_holders++ == 0) {
 		dev_dbg(swrm->dev, "%s: holding wake lock\n", __func__);
-		pm_qos_update_request(&swrm->pm_qos_req,
+		cpu_latency_qos_update_request(&swrm->pm_qos_req,
 					  msm_cpuidle_get_deep_idle_latency());
 		pm_stay_awake(swrm->dev);
 	}
@@ -3825,7 +3821,7 @@ static void swrm_unlock_sleep(struct swr_mstr_ctrl *swrm)
 		 */
 		if (likely(swrm->pm_state == SWRM_PM_AWAKE))
 			swrm->pm_state = SWRM_PM_SLEEPABLE;
-		pm_qos_update_request(&swrm->pm_qos_req,
+		cpu_latency_qos_update_request(&swrm->pm_qos_req,
 				  PM_QOS_DEFAULT_VALUE);
 		pm_relax(swrm->dev);
 	}

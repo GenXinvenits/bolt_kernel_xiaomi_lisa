@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
+ * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  */
-#ifdef CONFIG_DEBUG_FS
 #include <linux/debugfs.h>
-#endif
 #include <linux/errno.h>
 #include <linux/delay.h>
 #include <linux/io.h>
@@ -22,7 +19,6 @@
 #include <linux/qcom_scm.h>
 #include <soc/qcom/qseecomi.h>
 #include <linux/qtee_shmbridge.h>
-#include <linux/proc_fs.h>
 
 /* QSEE_LOG_BUF_SIZE = 32K */
 #define QSEE_LOG_BUF_SIZE 0x8000
@@ -39,7 +35,8 @@
 #define TZBSP_FVER_MINOR_SHIFT          12
 #define TZBSP_DIAG_MAJOR_VERSION_V9     9
 #define TZBSP_DIAG_MINOR_VERSION_V2     2
-#define TZBSP_DIAG_MINOR_VERSION_V21     3
+#define TZBSP_DIAG_MINOR_VERSION_V21    3
+#define TZBSP_DIAG_MINOR_VERSION_V22    4
 
 /* TZ Diag Feature Version Id */
 #define QCOM_SCM_FEAT_DIAG_ID           0x06
@@ -450,9 +447,6 @@ static phys_addr_t disp_buf_paddr;
 static uint64_t qseelog_shmbridge_handle;
 static struct encrypted_log_info enc_qseelog_info;
 static struct encrypted_log_info enc_tzlog_info;
-static struct proc_dir_entry *g_proc_dir;
-static struct proc_dir_entry *p_qsee_log_dump_handler;
-static struct proc_dir_entry *p_tz_log_dump_handler;
 
 /*
  * Debugfs data structure and functions
@@ -1211,19 +1205,6 @@ static const struct file_operations tzdbg_fops = {
 	.open    = simple_open,
 };
 
-static ssize_t qsee_log_dump_procfs_read(struct file *file, char __user *buf,
-					 size_t count, loff_t *offp)
-{
-	file->private_data = PDE_DATA(file_inode(file));
-	return tzdbgfs_read(file, buf, count, offp);
-}
-
-const struct file_operations qsee_log_dump_proc_fops = {
-	.owner = THIS_MODULE,
-	.read = qsee_log_dump_procfs_read,
-};
-
-
 /*
  * Allocates log buffer from ION, registers the buffer at TZ
  */
@@ -1369,7 +1350,6 @@ static int  tzdbgfs_init(struct platform_device *pdev)
 {
 	int rc = 0;
 	int i;
-#ifdef CONFIG_DEBUG_FS
 	struct dentry *dent_dir;
 	struct dentry *dent;
 
@@ -1378,17 +1358,7 @@ static int  tzdbgfs_init(struct platform_device *pdev)
 		dev_err(&pdev->dev, "tzdbg debugfs_create_dir failed\n");
 		return -ENOMEM;
 	}
-#endif
 
-	g_proc_dir = proc_mkdir("tzdbg", 0);
-	if (g_proc_dir == 0) {
-		printk("Unable to mkdir /proc/tzdbg\n");
-		pr_err("%s: qsee log dump dirs in proc  create dir failed ! \n", __func__);
-		rc = -ENOMEM;
-		goto err;
-	}
-
-#ifdef CONFIG_DEBUG_FS
 	for (i = 0; i < TZDBG_STATS_MAX; i++) {
 		tzdbg.debug_tz[i] = i;
 		dent = debugfs_create_file_unsafe(tzdbg.stat[i].name,
@@ -1400,39 +1370,10 @@ static int  tzdbgfs_init(struct platform_device *pdev)
 			goto err;
 		}
 	}
-#endif
-	for (i = 0; i < TZDBG_STATS_MAX; i++)
-		tzdbg.debug_tz[i] = i;
-
-	p_qsee_log_dump_handler = proc_create_data("qsee_log", 0, g_proc_dir,
-					      &qsee_log_dump_proc_fops, &tzdbg.debug_tz[TZDBG_QSEE_LOG]);
-
-	if (p_qsee_log_dump_handler == NULL) {
-		pr_err("%s: qsee log dump dirs in proc  create qsee file failed ! \n", __func__);
-	}
-
-	p_tz_log_dump_handler = proc_create_data("tz_log", 0, g_proc_dir,
-					    &qsee_log_dump_proc_fops, &tzdbg.debug_tz[TZDBG_LOG]);
-
-	if (p_tz_log_dump_handler == NULL) {
-		pr_err("%s: qsee log dump dirs in proc  create tz file failed ! \n", __func__);
-	}
-
-#ifdef CONFIG_DEBUG_FS
-	dent_dir = debugfs_create_dir("tzdbg", NULL);
-	if (dent_dir == NULL) {
-		dev_err(&pdev->dev, "tzdbg debugfs_create_dir failed\n");
-		return -ENOMEM;
-	}
-
 	platform_set_drvdata(pdev, dent_dir);
-#endif
-
 	return 0;
 err:
-#ifdef CONFIG_DEBUG_FS
 	debugfs_remove_recursive(dent_dir);
-#endif
 
 	return rc;
 }
@@ -1441,9 +1382,7 @@ static void tzdbgfs_exit(struct platform_device *pdev)
 {
 	struct dentry *dent_dir;
 	dent_dir = platform_get_drvdata(pdev);
-#ifdef CONFIG_DEBUG_FS
 	debugfs_remove_recursive(dent_dir);
-#endif
 }
 
 static int __update_hypdbg_base(struct platform_device *pdev,
@@ -1516,7 +1455,9 @@ static int tzdbg_get_tz_version(void)
 	((((version >> TZBSP_FVER_MINOR_SHIFT) & TZBSP_FVER_MAJOR_MINOR_MASK)
 			== TZBSP_DIAG_MINOR_VERSION_V2) ||
 	(((version >> TZBSP_FVER_MINOR_SHIFT) & TZBSP_FVER_MAJOR_MINOR_MASK)
-			== TZBSP_DIAG_MINOR_VERSION_V21)))
+			== TZBSP_DIAG_MINOR_VERSION_V21) ||
+	(((version >> TZBSP_FVER_MINOR_SHIFT) & TZBSP_FVER_MAJOR_MINOR_MASK)
+			== TZBSP_DIAG_MINOR_VERSION_V22)))
 		tzdbg.is_enlarged_buf = true;
 	else
 		tzdbg.is_enlarged_buf = false;

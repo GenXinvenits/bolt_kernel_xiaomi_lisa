@@ -460,7 +460,7 @@ config MISC_RTSX
 
 config UID_SYS_STATS
 	bool "Per-UID statistics"
-	depends on PROFILING && TASK_XACCT && TASK_IO_ACCOUNTING
+	depends on TASK_XACCT && TASK_IO_ACCOUNTING
 	help
 	  Per UID based cpu time statistics exported to /proc/uid_cputime
 	  Per UID based io statistics exported to /proc/uid_io
@@ -526,20 +526,9 @@ config HISI_HIKEY_USB
 
 config MI_HARDWARE_ID
 	tristate "Register xiaomi hwid module"
-	default n
+	depends on MACH_XIAOMI
 	help
 	  This adds support for mi hwid.
-
-config PERF_HELPER
-	default y
-	help
-	  this module support record perf lock history and other perf messages.
-
-config GPIO_TESTING_MODE
-	tristate "A simple GPIO testing mode driver for sar controler"
-	default n
-	help
-	  Enable driver for a simple testing mode detection
 
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
@@ -556,5 +545,4 @@ source "drivers/misc/cxl/Kconfig"
 source "drivers/misc/ocxl/Kconfig"
 source "drivers/misc/cardreader/Kconfig"
 source "drivers/misc/habanalabs/Kconfig"
-source "drivers/misc/al6021/Kconfig"
 endmenu

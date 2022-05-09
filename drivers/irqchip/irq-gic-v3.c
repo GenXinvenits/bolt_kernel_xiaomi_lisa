@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2013-2017 ARM Limited, All Rights Reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  * Author: Marc Zyngier <marc.zyngier@arm.com>
  */
 
@@ -19,6 +18,7 @@
 #include <linux/percpu.h>
 #include <linux/refcount.h>
 #include <linux/slab.h>
+#include <linux/suspend.h>
 #include <linux/msm_rtb.h>
 #include <linux/wakeup_reason.h>
 
@@ -27,7 +27,6 @@
 #include <linux/irqchip/arm-gic-common.h>
 #include <linux/irqchip/arm-gic-v3.h>
 #include <linux/irqchip/irq-partition-percpu.h>
-
 
 #include <asm/cputype.h>
 #include <asm/exception.h>
@@ -169,11 +168,11 @@ static inline void __iomem *gic_dist_base(struct irq_data *d)
 	}
 }
 
-static void gic_do_wait_for_rwp(void __iomem *base)
+static void gic_do_wait_for_rwp(void __iomem *base, u32 bit)
 {
 	u32 count = 1000000;	/* 1s! */
 
-	while (readl_relaxed(base + GICD_CTLR) & GICD_CTLR_RWP) {
+	while (readl_relaxed(base + GICD_CTLR) & bit) {
 		count--;
 		if (!count) {
 			pr_err_ratelimited("RWP timeout, gone fishing\n");
@@ -187,13 +186,13 @@ static void gic_do_wait_for_rwp(void __iomem *base)
 /* Wait for completion of a distributor change */
 static void gic_dist_wait_for_rwp(void)
 {
-	gic_do_wait_for_rwp(gic_data.dist_base);
+	gic_do_wait_for_rwp(gic_data.dist_base, GICD_CTLR_RWP);
 }
 
 /* Wait for completion of a redistributor change */
 static void gic_redist_wait_for_rwp(void)
 {
-	gic_do_wait_for_rwp(gic_data_rdist_rd_base());
+	gic_do_wait_for_rwp(gic_data_rdist_rd_base(), GICR_CTLR_RWP);
 }
 
 #ifdef CONFIG_ARM64
@@ -606,10 +605,15 @@ static void gic_show_resume_irq(struct gic_chip_data *gic)
 		struct irq_desc *desc = irq_to_desc(irq);
 		const char *name = "null";
 
+		if (i < 32)
+			continue;
+
 		if (desc == NULL)
 			name = "stray irq";
 		else if (desc->action && desc->action->name)
 			name = desc->action->name;
+		else if (desc->irq_data.chip && desc->irq_data.chip->name)
+			name = desc->irq_data.chip->name;
 
 		pr_warn("%s: irq:%d hwirq:%u triggered %s\n",
 			 __func__, irq, i, name);
@@ -639,7 +643,6 @@ static int __init gic_init_sys(void)
 arch_initcall(gic_init_sys);
 
 #endif
-
 
 static u64 gic_mpidr_to_affinity(unsigned long mpidr)
 {
@@ -693,6 +696,10 @@ static asmlinkage void __exception_irq_entry gic_handle_irq(struct pt_regs *regs
 
 	irqnr = gic_read_iar();
 
+	/* Check for special IDs first */
+	if ((irqnr >= 1020 && irqnr <= 1023))
+		return;
+
 	if (gic_supports_nmi() &&
 	    unlikely(gic_read_rpr() == GICD_INT_NMI_PRI)) {
 		gic_handle_nmi(irqnr, regs);
@@ -703,10 +710,6 @@ static asmlinkage void __exception_irq_entry gic_handle_irq(struct pt_regs *regs
 		gic_pmr_mask_irqs();
 		gic_arch_enable_irqs();
 	}
-
-	/* Check for special IDs first */
-	if ((irqnr >= 1020 && irqnr <= 1023))
-		return;
 
 	/* Treat anything but SGIs in a uniform way */
 	if (likely(irqnr > 15)) {
@@ -1246,6 +1249,13 @@ static int gic_set_affinity(struct irq_data *d, const struct cpumask *mask_val,
 #define gic_set_affinity	NULL
 #define gic_smp_init()		do { } while(0)
 #endif
+
+#ifdef CONFIG_QGKI_SHOW_S2IDLE_WAKE_IRQ
+void gic_s2idle_wake(void)
+{
+	gic_resume_one(&gic_data);
+}
+#endif /* CONFIG_QGKI_SHOW_S2IDLE_WAKE_IRQ */
 
 #ifdef CONFIG_CPU_PM
 static int gic_cpu_pm_notifier(struct notifier_block *self,
@@ -1850,7 +1860,6 @@ static int __init gicv3_of_init(struct device_node *node, struct device_node *pa
 		goto out_unmap_rdist;
 
 	gic_populate_ppi_partitions(node);
-
 
 	if (static_branch_likely(&supports_deactivate_key))
 		gic_of_setup_kvm_info(node);

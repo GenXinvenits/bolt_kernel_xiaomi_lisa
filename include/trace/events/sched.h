@@ -32,6 +32,7 @@ TRACE_EVENT(sched_kthread_stop,
 	TP_printk("comm=%s pid=%d", __entry->comm, __entry->pid)
 );
 
+#ifdef CONFIG_MACH_XIAOMI
 TRACE_EVENT(sched_setaffinity,
 
 	TP_PROTO(pid_t pid, const struct cpumask *in_mask),
@@ -50,6 +51,7 @@ TRACE_EVENT(sched_setaffinity,
 
 	TP_printk(" pid=%d affine=%#lx", __entry->pid, __entry->cpu_mask)
 );
+#endif
 
 /*
  * Tracepoint for the return value of the kthread stopping:
@@ -661,6 +663,7 @@ DEFINE_EVENT_SCHEDSTAT(sched_stat_template, sched_stat_iowait,
 DEFINE_EVENT_SCHEDSTAT(sched_stat_template, sched_stat_blocked,
 	     TP_PROTO(struct task_struct *tsk, u64 delay),
 	     TP_ARGS(tsk, delay));
+
 /*
  * Tracepoint for recording the cause of uninterruptible sleep.
  */
@@ -678,7 +681,7 @@ TRACE_EVENT(sched_blocked_reason,
 
 	TP_fast_assign(
 		__entry->pid	= tsk->pid;
-		__entry->caller = (void*)get_wchan(tsk);
+		__entry->caller = (void *)get_wchan(tsk);
 		__entry->io_wait = tsk->in_iowait;
 	),
 
@@ -719,6 +722,7 @@ DEFINE_EVENT(sched_stat_runtime, sched_stat_runtime,
 	     TP_PROTO(struct task_struct *tsk, u64 runtime, u64 vruntime),
 	     TP_ARGS(tsk, runtime, vruntime));
 
+#ifdef CONFIG_PERF_HUMANTASK
 /* debug sched event of EAS for tracer: nop  */
 TRACE_EVENT(sched_debug_einfo,
 		TP_PROTO(struct task_struct *tsk, const char *flag1, const char *flag2, unsigned int param1, unsigned int param2, u64 se_vr, u64 en_vr, u64 cfq_min_vr),
@@ -756,7 +760,7 @@ TRACE_EVENT(sched_debug_einfo,
 				(unsigned long long)__entry->en_vr,
 				(unsigned long long)__entry->cfq_min_vr)
 		);
-
+#endif
 
 /*
  * Tracepoint for showing priority inheritance modifying a tasks
@@ -932,6 +936,10 @@ DECLARE_TRACE(pelt_rt_tp,
 	TP_ARGS(rq));
 
 DECLARE_TRACE(pelt_dl_tp,
+	TP_PROTO(struct rq *rq),
+	TP_ARGS(rq));
+
+DECLARE_TRACE(pelt_thermal_tp,
 	TP_PROTO(struct rq *rq),
 	TP_ARGS(rq));
 

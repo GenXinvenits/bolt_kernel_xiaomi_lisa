@@ -1,20 +1,8 @@
- /*
-  * Goodix Touchscreen Driver
-  * Copyright (C) 2020 - 2021 Goodix, Inc.
-  * Copyright (C) 2021 XiaoMi, Inc.
-  *
-  * This program is free software; you can redistribute it and/or modify
-  * it under the terms of the GNU General Public License as published by
-  * the Free Software Foundation; either version 2 of the License, or
-  * (at your option) any later version.
-  *
-  * This program is distributed in the hope that it will be a reference
-  * to you, when you are integrating the GOODiX's CTP IC into your system,
-  * but WITHOUT ANY WARRANTY; without even the implied warranty of
-  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-  * General Public License for more details.
-  *
-  */
+// SPDX-License-Identifier: GPL-2.0
+// Goodix Touchscreen Driver
+// Copyright (C) 2020 - 2021 Goodix, Inc.
+// Copyright (C) 2021 XiaoMi, Inc.
+
 #include "goodix_ts_core.h"
 
 /*****************************************************************************
@@ -42,8 +30,8 @@ u32 goodix_append_checksum(u8 *data, int len, int mode)
 		for (i = 0; i < len; i++)
 			checksum += data[i];
 	} else {
-		for (i = 0; i < len; i+=2)
-			checksum += (data[i] + (data[i+1] << 8));
+		for (i = 0; i < len; i += 2)
+			checksum += (data[i] + (data[i + 1] << 8));
 	}
 
 	if (mode == CHECKSUM_MODE_U8_LE) {
@@ -84,7 +72,7 @@ int checksum_cmp(const u8 *data, int size, int mode)
 	for (i = 0; i < size - 4; i += 2)
 		cal_checksum += data[i] + (data[i + 1] << 8);
 	r_checksum = data[size - 4] + (data[size - 3] << 8) +
-		(data[size - 2] << 16) + (data[size - 1] << 24);
+		     (data[size - 2] << 16) + (data[size - 1] << 24);
 	return cal_checksum == r_checksum ? 0 : 1;
 }
 
@@ -94,7 +82,7 @@ int checksum_cmp(const u8 *data, int size, int mode)
 int is_risk_data(const u8 *data, int size)
 {
 	int i;
-	int zero_count =  0;
+	int zero_count = 0;
 	int ff_count = 0;
 
 	for (i = 0; i < size; i++) {
@@ -113,7 +101,7 @@ int is_risk_data(const u8 *data, int size)
 }
 
 /* get config id form config file */
-#define CONFIG_ID_OFFSET		30
+#define CONFIG_ID_OFFSET 30
 u32 goodix_get_file_config_id(u8 *ic_config)
 {
 	if (!ic_config)

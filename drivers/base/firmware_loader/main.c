@@ -3,7 +3,6 @@
  * main.c - Multi purpose firmware loading support
  *
  * Copyright (c) 2003 Manuel Estrada Sainz
- * Copyright (C) 2021 XiaoMi, Inc.
  *
  * Please see Documentation/firmware_class/ for more information.
  *
@@ -99,12 +98,15 @@ static struct firmware_cache fw_cache;
 extern struct builtin_fw __start_builtin_fw[];
 extern struct builtin_fw __end_builtin_fw[];
 
-static void fw_copy_to_prealloc_buf(struct firmware *fw,
+static bool fw_copy_to_prealloc_buf(struct firmware *fw,
 				    void *buf, size_t size)
 {
-	if (!buf || size < fw->size)
-		return;
+	if (!buf)
+		return true;
+	if (size < fw->size)
+		return false;
 	memcpy(buf, fw->data, fw->size);
+	return true;
 }
 
 static bool fw_get_builtin_firmware(struct firmware *fw, const char *name,
@@ -116,9 +118,7 @@ static bool fw_get_builtin_firmware(struct firmware *fw, const char *name,
 		if (strcmp(name, b_fw->name) == 0) {
 			fw->size = b_fw->size;
 			fw->data = b_fw->data;
-			fw_copy_to_prealloc_buf(fw, buf, size);
-
-			return true;
+			return fw_copy_to_prealloc_buf(fw, buf, size);
 		}
 	}
 
@@ -442,9 +442,12 @@ static int fw_decompress_xz(struct device *dev, struct fw_priv *fw_priv,
 #endif /* CONFIG_FW_LOADER_COMPRESS */
 
 /* direct firmware loading support */
-static char fw_path_para[256] = "/vendor/firmware";
+static char fw_path_para[256];
 static const char * const fw_path[] = {
 	fw_path_para,
+#ifdef CONFIG_MACH_XIAOMI
+	"/vendor/firmware",
+#endif
 	"/lib/firmware/updates/" UTS_RELEASE,
 	"/lib/firmware/updates",
 	"/lib/firmware/" UTS_RELEASE,
@@ -748,8 +751,10 @@ static void fw_abort_batch_reqs(struct firmware *fw)
 		return;
 
 	fw_priv = fw->priv;
+	mutex_lock(&fw_lock);
 	if (!fw_state_is_aborted(fw_priv))
 		fw_state_aborted(fw_priv);
+	mutex_unlock(&fw_lock);
 }
 
 /* called from request_firmware() and request_firmware_work_func() */
@@ -782,10 +787,12 @@ _request_firmware(const struct firmware **firmware_p, const char *name,
 #endif
 
 	if (ret) {
+#ifndef CONFIG_MACH_XIAOMI
 		if (!(opt_flags & FW_OPT_NO_WARN))
 			dev_warn(device,
 				 "Direct firmware load for %s failed with error %d\n",
 				 name, ret);
+#endif
 		ret = firmware_fallback_sysfs(fw, name, device, opt_flags, ret);
 	} else
 		ret = assign_fw(fw, device, opt_flags);

@@ -3,7 +3,6 @@
  *	linux/mm/filemap.c
  *
  * Copyright (C) 1994-1999  Linus Torvalds
- * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 /*
@@ -872,7 +871,6 @@ noinline int __add_to_page_cache_locked(struct page *page,
 	int huge = PageHuge(page);
 	struct mem_cgroup *memcg;
 	int error;
-	void *old;
 
 	VM_BUG_ON_PAGE(!PageLocked(page), page);
 	VM_BUG_ON_PAGE(PageSwapBacked(page), page);
@@ -888,21 +886,41 @@ noinline int __add_to_page_cache_locked(struct page *page,
 	get_page(page);
 	page->mapping = mapping;
 	page->index = offset;
+	gfp_mask &= GFP_RECLAIM_MASK;
 
 	do {
+		unsigned int order = xa_get_order(xas.xa, xas.xa_index);
+		void *entry, *old = NULL;
+
+		if (order > thp_order(page))
+			xas_split_alloc(&xas, xa_load(xas.xa, xas.xa_index),
+					order, gfp_mask);
 		xas_lock_irq(&xas);
-		old = xas_load(&xas);
-		if (old && !xa_is_value(old))
-			xas_set_err(&xas, -EEXIST);
+		xas_for_each_conflict(&xas, entry) {
+			old = entry;
+			if (!xa_is_value(entry)) {
+				xas_set_err(&xas, -EEXIST);
+				goto unlock;
+			}
+		}
+
+		if (old) {
+			if (shadowp)
+				*shadowp = old;
+			/* entry may have been split before we acquired lock */
+			order = xa_get_order(xas.xa, xas.xa_index);
+			if (order > thp_order(page)) {
+				xas_split(&xas, old, order);
+				xas_reset(&xas);
+			}
+		}
+
 		xas_store(&xas, page);
 		if (xas_error(&xas))
 			goto unlock;
 
-		if (xa_is_value(old)) {
+		if (old)
 			mapping->nrexceptional--;
-			if (shadowp)
-				*shadowp = old;
-		}
 		mapping->nrpages++;
 
 		/* hugetlb pages do not participate in page cache accounting */
@@ -910,7 +928,7 @@ noinline int __add_to_page_cache_locked(struct page *page,
 			__inc_node_page_state(page, NR_FILE_PAGES);
 unlock:
 		xas_unlock_irq(&xas);
-	} while (xas_nomem(&xas, gfp_mask & GFP_RECLAIM_MASK));
+	} while (xas_nomem(&xas, gfp_mask));
 
 	if (xas_error(&xas))
 		goto error;
@@ -956,13 +974,6 @@ int add_to_page_cache_lru(struct page *page, struct address_space *mapping,
 	int ret;
 
 	__SetPageLocked(page);
-#ifdef CONFIG_PERF_HUMANTASK
-	//page->_kworker = current->tgid ;
-	if (current->human_task) {
-		//trace_filemap_debug_einfo(page,current,"page_cache_lru",0);
-	}
-#endif
-
 	ret = __add_to_page_cache_locked(page, mapping, offset,
 					 gfp_mask, &shadow);
 	if (unlikely(ret))
@@ -1338,11 +1349,6 @@ void unlock_page(struct page *page)
 	VM_BUG_ON_PAGE(!PageLocked(page), page);
 	if (clear_bit_unlock_is_negative_byte(PG_locked, &page->flags))
 		wake_up_page_bit(page, PG_locked);
-#ifdef CONFIG_PERF_HUMANTASK
-	if (current->human_task) {
-		//trace_filemap_debug_einfo(page,current,"unlock_page",0);
-	}
-#endif
 }
 EXPORT_SYMBOL(unlock_page);
 
@@ -1444,17 +1450,11 @@ int __lock_page_or_retry(struct page *page, struct mm_struct *mm,
 		if (flags & FAULT_FLAG_RETRY_NOWAIT)
 			return 0;
 
-		up_read(&mm->mmap_sem);
-		if (flags & FAULT_FLAG_KILLABLE) {
-#ifdef CONFIG_PERF_HUMANTASK
-			if (current->human_task) {
-				//trace_filemap_debug_einfo(page,current,"locked_killable",0);
-			}
-#endif
+		mmap_read_unlock(mm);
+		if (flags & FAULT_FLAG_KILLABLE)
 			wait_on_page_locked_killable(page);
-		} else {
+		else
 			wait_on_page_locked(page);
-		}
 		return 0;
 	} else {
 		if (flags & FAULT_FLAG_KILLABLE) {
@@ -1462,7 +1462,7 @@ int __lock_page_or_retry(struct page *page, struct mm_struct *mm,
 
 			ret = __lock_page_killable(page);
 			if (ret) {
-				up_read(&mm->mmap_sem);
+				mmap_read_unlock(mm);
 				return 0;
 			}
 		} else
@@ -2398,7 +2398,7 @@ static int lock_page_maybe_drop_mmap(struct vm_fault *vmf, struct page *page,
 			 * mmap_sem here and return 0 if we don't have a fpin.
 			 */
 			if (*fpin == NULL)
-				up_read(&vmf->vma->vm_mm->mmap_sem);
+				mmap_read_unlock(vmf->vma->vm_mm);
 			return 0;
 		}
 	} else

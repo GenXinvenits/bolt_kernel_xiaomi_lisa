@@ -1,20 +1,12 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
- * USB Driver for DTP
+ * Gadget Function Driver for DTP
  *
- * Copyright (C) 2020 xiaomi, Inc.
  * Copyright (C) 2021 XiaoMi, Inc.
  * Author: Deng yong jian <dengyongjian@xiaomi.com>
  *
- * This software is licensed under the terms of the GNU General Public
- * License version 2, as published by the Free Software Foundation, and
- * may be copied, distributed, and modified under those terms.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
  */
+
 #include <linux/kernel.h>
 #include <linux/slab.h>
 #include <linux/input.h>
@@ -404,9 +396,7 @@ static void send_file_work(struct work_struct *data)
 		goto err1;
 	}
 
-
 	while (count > 0) {
-
 		xfer = (drv->bulk_out_size < count)?drv->bulk_out_size:count;
 
 		/*create a urb, and a buffer for it, and copy the data to the urb*/
@@ -433,7 +423,6 @@ static void send_file_work(struct work_struct *data)
 
 		xfer = ret;
 
-
 		/*initialize the urb properly*/
 		usb_fill_bulk_urb(urb, drv->udev,
 				  usb_sndbulkpipe(drv->udev,
@@ -454,8 +443,6 @@ static void send_file_work(struct work_struct *data)
 		   the USB core will eventually free it entirely*/
 		usb_free_urb(urb);
 		count -= xfer;
-
-
 	}
 	up_read(&drv->io_rwsem);
 	up(&drv->limit_sem);
@@ -541,12 +528,10 @@ static long send_receive_ioctl(struct file *fp, unsigned int code, struct dtp_fi
 	struct file *filp = NULL;
 	int ret = -EINVAL;
 
-
 	if (atomic_try_down(&drv->ioctl_refcnt)) {
 		log_err("ioctl is busy\n");
 		return -EBUSY;
 	}
-
 
 	/*hold a reference to the file while we are working with it*/
 	filp = fget(fdesc->fd);
@@ -802,10 +787,8 @@ static struct usb_driver usb_dtp_driver = {
 	.id_table	= id_tables,
 	.supports_autosuspend = 1,
 };
-
 module_usb_driver(usb_dtp_driver);
 
 MODULE_AUTHOR("Deng yongjian <dengyongjian@xiaomi.com>");
 MODULE_DESCRIPTION("USB DTP Host Driver");
 MODULE_LICENSE("GPL");
-

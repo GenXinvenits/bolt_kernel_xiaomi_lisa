@@ -8,7 +8,6 @@
 #include "mius_version.h"
 #include <mius/mius_mixer_controls.h>
 
-
 #define MIUS_DIAGNOSTICS_DATA_SECTION_COUNT 16
 #define MIUS_CALIBRATION_MAX_DISPLAY_COUNT  96
 #define MIUS_ML_DISPLAY_COUNT 16

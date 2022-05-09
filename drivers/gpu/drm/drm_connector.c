@@ -724,7 +724,7 @@ void drm_connector_list_iter_end(struct drm_connector_list_iter *iter)
 		__drm_connector_put_safe(iter->conn);
 		spin_unlock_irqrestore(&config->connector_list_lock, flags);
 	}
-	lock_release(&connector_list_iter_dep_map, 0, _RET_IP_);
+	lock_release(&connector_list_iter_dep_map, _RET_IP_);
 }
 EXPORT_SYMBOL(drm_connector_list_iter_end);
 
@@ -2051,6 +2051,9 @@ EXPORT_SYMBOL(drm_connector_attach_max_bpc_property);
 void drm_connector_set_vrr_capable_property(
 		struct drm_connector *connector, bool capable)
 {
+	if (!connector->vrr_capable_property)
+		return;
+
 	drm_object_property_set_value(&connector->base,
 				      connector->vrr_capable_property,
 				      capable);

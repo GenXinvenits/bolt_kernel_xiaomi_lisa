@@ -1,7 +1,6 @@
 /*
   FUSE: Filesystem in Userspace
   Copyright (C) 2001-2008  Miklos Szeredi <miklos@szeredi.hu>
-  Copyright (C) 2021 XiaoMi, Inc.
 
   This program can be distributed under the terms of the GNU GPL.
   See the file COPYING.
@@ -202,7 +201,7 @@ static int fuse_dentry_revalidate(struct dentry *entry, unsigned int flags)
 	int ret;
 
 	inode = d_inode_rcu(entry);
-	if (inode && is_bad_inode(inode))
+	if (inode && fuse_is_bad(inode))
 		goto invalid;
 	else if (time_before64(fuse_dentry_time(entry), get_jiffies_64()) ||
 		 (flags & LOOKUP_REVAL)) {
@@ -247,7 +246,11 @@ static int fuse_dentry_revalidate(struct dentry *entry, unsigned int flags)
 			spin_unlock(&fi->lock);
 		}
 		kfree(forget);
+#ifndef CONFIG_MACH_XIAOMI
+		if (ret == -ENOMEM)
+#else
 		if ((ret == -ENOMEM) || (ret == -EINTR))
+#endif
 			goto out;
 		if (ret || fuse_invalid_attr(&outarg.attr) ||
 		    (outarg.attr.mode ^ inode->i_mode) & S_IFMT)
@@ -312,7 +315,7 @@ static void fuse_dentry_canonical_path(const struct path *path, struct path *can
 	char *path_name;
 	int err;
 
-	path_name = (char*)__get_free_page(GFP_KERNEL);
+	path_name = (char *)get_zeroed_page(GFP_KERNEL);
 	if (!path_name)
 		goto default_path;
 
@@ -424,6 +427,9 @@ static struct dentry *fuse_lookup(struct inode *dir, struct dentry *entry,
 	bool outarg_valid = true;
 	bool locked;
 
+	if (fuse_is_bad(dir))
+		return ERR_PTR(-EIO);
+
 	locked = fuse_lock_inode(dir);
 	err = fuse_lookup_name(dir->i_sb, get_node_id(dir), &entry->d_name,
 			       &outarg, &inode);
@@ -527,9 +533,7 @@ static int fuse_create_open(struct inode *dir, struct dentry *entry,
 	ff->fh = outopen.fh;
 	ff->nodeid = outentry.nodeid;
 	ff->open_flags = outopen.open_flags;
-	#if defined(CONFIG_PASSTHROUGH_SYSTEM) && defined(CONFIG_REGION_IS_CN)
 	fuse_passthrough_setup(fc, ff, &outopen);
-	#endif
 	inode = fuse_iget(dir->i_sb, outentry.nodeid, outentry.generation,
 			  &outentry.attr, entry_attr_timeout(&outentry), 0);
 	if (!inode) {
@@ -569,6 +573,9 @@ static int fuse_atomic_open(struct inode *dir, struct dentry *entry,
 	int err;
 	struct fuse_conn *fc = get_fuse_conn(dir);
 	struct dentry *res = NULL;
+
+	if (fuse_is_bad(dir))
+		return -EIO;
 
 	if (d_in_lookup(entry)) {
 		res = fuse_lookup(dir, entry, 0);
@@ -617,6 +624,9 @@ static int create_new_entry(struct fuse_conn *fc, struct fuse_args *args,
 	struct dentry *d;
 	int err;
 	struct fuse_forget_link *forget;
+
+	if (fuse_is_bad(dir))
+		return -EIO;
 
 	forget = fuse_alloc_forget();
 	if (!forget)
@@ -745,6 +755,9 @@ static int fuse_unlink(struct inode *dir, struct dentry *entry)
 	struct fuse_conn *fc = get_fuse_conn(dir);
 	FUSE_ARGS(args);
 
+	if (fuse_is_bad(dir))
+		return -EIO;
+
 	args.opcode = FUSE_UNLINK;
 	args.nodeid = get_node_id(dir);
 	args.in_numargs = 1;
@@ -780,6 +793,9 @@ static int fuse_rmdir(struct inode *dir, struct dentry *entry)
 	int err;
 	struct fuse_conn *fc = get_fuse_conn(dir);
 	FUSE_ARGS(args);
+
+	if (fuse_is_bad(dir))
+		return -EIO;
 
 	args.opcode = FUSE_RMDIR;
 	args.nodeid = get_node_id(dir);
@@ -858,6 +874,9 @@ static int fuse_rename2(struct inode *olddir, struct dentry *oldent,
 {
 	struct fuse_conn *fc = get_fuse_conn(olddir);
 	int err;
+
+	if (fuse_is_bad(olddir))
+		return -EIO;
 
 	if (flags & ~(RENAME_NOREPLACE | RENAME_EXCHANGE))
 		return -EINVAL;
@@ -994,7 +1013,7 @@ static int fuse_do_getattr(struct inode *inode, struct kstat *stat,
 	if (!err) {
 		if (fuse_invalid_attr(&outarg.attr) ||
 		    (inode->i_mode ^ outarg.attr.mode) & S_IFMT) {
-			make_bad_inode(inode);
+			fuse_make_bad(inode);
 			err = -EIO;
 		} else {
 			fuse_change_attributes(inode, &outarg.attr,
@@ -1055,7 +1074,7 @@ int fuse_reverse_inval_entry(struct super_block *sb, u64 parent_nodeid,
 	if (!parent)
 		return -ENOENT;
 
-	inode_lock(parent);
+	inode_lock_nested(parent, I_MUTEX_PARENT);
 	if (!S_ISDIR(parent->i_mode))
 		goto unlock;
 
@@ -1196,6 +1215,9 @@ static int fuse_permission(struct inode *inode, int mask)
 	bool refreshed = false;
 	int err = 0;
 
+	if (fuse_is_bad(inode))
+		return -EIO;
+
 	if (!fuse_allow_current_process(fc))
 		return -EACCES;
 
@@ -1291,7 +1313,7 @@ static const char *fuse_get_link(struct dentry *dentry, struct inode *inode,
 	int err;
 
 	err = -EIO;
-	if (is_bad_inode(inode))
+	if (fuse_is_bad(inode))
 		goto out_err;
 
 	if (fc->cache_symlinks)
@@ -1339,7 +1361,7 @@ static int fuse_dir_fsync(struct file *file, loff_t start, loff_t end,
 	struct fuse_conn *fc = get_fuse_conn(inode);
 	int err;
 
-	if (is_bad_inode(inode))
+	if (fuse_is_bad(inode))
 		return -EIO;
 
 	if (fc->no_fsyncdir)
@@ -1616,7 +1638,7 @@ int fuse_do_setattr(struct dentry *dentry, struct iattr *attr,
 
 	if (fuse_invalid_attr(&outarg.attr) ||
 	    (inode->i_mode ^ outarg.attr.mode) & S_IFMT) {
-		make_bad_inode(inode);
+		fuse_make_bad(inode);
 		err = -EIO;
 		goto error;
 	}
@@ -1671,6 +1693,9 @@ static int fuse_setattr(struct dentry *entry, struct iattr *attr)
 	struct fuse_conn *fc = get_fuse_conn(inode);
 	struct file *file = (attr->ia_valid & ATTR_FILE) ? attr->ia_file : NULL;
 	int ret;
+
+	if (fuse_is_bad(inode))
+		return -EIO;
 
 	if (!fuse_allow_current_process(get_fuse_conn(inode)))
 		return -EACCES;
@@ -1729,6 +1754,9 @@ static int fuse_getattr(const struct path *path, struct kstat *stat,
 {
 	struct inode *inode = d_inode(path->dentry);
 	struct fuse_conn *fc = get_fuse_conn(inode);
+
+	if (fuse_is_bad(inode))
+		return -EIO;
 
 	if (!fuse_allow_current_process(fc))
 		return -EACCES;

@@ -88,7 +88,7 @@ i915_gem_mmap_ioctl(struct drm_device *dev, void *data,
 		struct mm_struct *mm = current->mm;
 		struct vm_area_struct *vma;
 
-		if (down_write_killable(&mm->mmap_sem)) {
+		if (mmap_write_lock_killable(mm)) {
 			addr = -EINTR;
 			goto err;
 		}
@@ -98,7 +98,7 @@ i915_gem_mmap_ioctl(struct drm_device *dev, void *data,
 				pgprot_writecombine(vm_get_page_prot(vma->vm_flags));
 		else
 			addr = -ENOMEM;
-		up_write(&mm->mmap_sem);
+		mmap_write_unlock(mm);
 		if (IS_ERR_VALUE(addr))
 			goto err;
 	}
@@ -181,7 +181,7 @@ compute_partial_view(const struct drm_i915_gem_object *obj,
 	struct i915_ggtt_view view;
 
 	if (i915_gem_object_is_tiled(obj))
-		chunk = roundup(chunk, tile_row_pages(obj));
+		chunk = roundup(chunk, tile_row_pages(obj) ?: 1);
 
 	view.type = I915_GGTT_VIEW_PARTIAL;
 	view.partial.offset = rounddown(page_offset, chunk);

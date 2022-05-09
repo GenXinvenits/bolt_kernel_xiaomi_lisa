@@ -3,7 +3,6 @@
  * fs/f2fs/segment.c
  *
  * Copyright (c) 2012 Samsung Electronics Co., Ltd.
- * Copyright (C) 2021 XiaoMi, Inc.
  *             http://www.samsung.com/
  */
 #include <linux/fs.h>
@@ -507,6 +506,7 @@ void f2fs_balance_fs(struct f2fs_sb_info *sbi, bool need)
 	 * dir/node pages without enough free segments.
 	 */
 	if (has_not_enough_free_secs(sbi, 0, 0)) {
+#ifdef CONFIG_MACH_XIAOMI
 		if (test_opt(sbi, GC_MERGE) && sbi->gc_thread &&
 					sbi->gc_thread->f2fs_gc_task) {
 			DEFINE_WAIT(wait);
@@ -517,9 +517,12 @@ void f2fs_balance_fs(struct f2fs_sb_info *sbi, bool need)
 			io_schedule();
 			finish_wait(&sbi->gc_thread->fggc_wq, &wait);
 		} else {
-			down_write(&sbi->gc_lock);
-			f2fs_gc(sbi, false, false, NULL_SEGNO);
+#endif
+		down_write(&sbi->gc_lock);
+		f2fs_gc(sbi, false, false, NULL_SEGNO);
+#ifdef CONFIG_MACH_XIAOMI
 		}
+#endif
 	}
 }
 
@@ -615,6 +618,10 @@ repeat:
 	if (kthread_should_stop())
 		return 0;
 
+#ifndef CONFIG_MACH_XIAOMI
+	sb_start_intwrite(sbi->sb);
+#endif
+
 	if (!llist_empty(&fcc->issue_list)) {
 		struct flush_cmd *cmd, *next;
 		int ret;
@@ -634,6 +641,10 @@ repeat:
 		}
 		fcc->dispatch_list = NULL;
 	}
+
+#ifndef CONFIG_MACH_XIAOMI
+	sb_end_intwrite(sbi->sb);
+#endif
 
 	wait_event_interruptible(*q,
 		kthread_should_stop() || !llist_empty(&fcc->issue_list));
@@ -2835,6 +2846,7 @@ skip:
 		if (fatal_signal_pending(current))
 			break;
 
+#ifdef CONFIG_MACH_XIAOMI
 		/*
 		 * If the trim thread is running and we receive the SCREEN_ON
 		 * event, we will send SIGUSR1 singnal to teriminate the trim
@@ -2843,6 +2855,8 @@ skip:
 		 */
 		if (signal_pending(current) && sigismember(&current->pending.signal, SIGUSR1))
 			break;
+#endif
+
 	}
 
 	blk_finish_plug(&plug);
@@ -2896,6 +2910,17 @@ int f2fs_trim_fs(struct f2fs_sb_info *sbi, struct fstrim_range *range)
 	up_write(&sbi->gc_lock);
 	if (err)
 		goto out;
+
+#ifndef CONFIG_MACH_XIAOMI
+	/*
+	 * We filed discard candidates, but actually we don't need to wait for
+	 * all of them, since they'll be issued in idle time along with runtime
+	 * discard option. User configuration looks like using runtime discard
+	 * or periodic fstrim instead of it.
+	 */
+	if (f2fs_realtime_discard_enable(sbi))
+		goto out;
+#endif
 
 	start_block = START_BLOCK(sbi, start_segno);
 	end_block = START_BLOCK(sbi, end_segno + 1);
@@ -4380,6 +4405,10 @@ static int sanity_check_curseg(struct f2fs_sb_info *sbi)
 		struct curseg_info *curseg = CURSEG_I(sbi, i);
 		struct seg_entry *se = get_seg_entry(sbi, curseg->segno);
 		unsigned int blkofs = curseg->next_blkoff;
+
+		if (f2fs_sb_has_readonly(sbi) &&
+			i != CURSEG_HOT_DATA && i != CURSEG_HOT_NODE)
+			continue;
 
 		if (f2fs_test_bit(blkofs, se->cur_valid_map))
 			goto out;

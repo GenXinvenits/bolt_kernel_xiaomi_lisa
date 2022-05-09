@@ -1,6 +1,6 @@
 /* 
  * Copyright (C) 2014-2020 NXP Semiconductors, All Rights Reserved.
- * Copyright 2020 GOODIX 
+ * Copyright 2021 GOODIX 
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -323,14 +323,14 @@ enum Tfa98xx_Error tfaRunReadBitfield(struct tfa_device *tfa,  TfaBitfield_t *bf
  * @param tfa the device struct pointer
  * @param hw_feature_register pointer to where hw features are stored
  */
-void get_hw_features_from_cnt(struct tfa_device *tfa, int *hw_feature_register);
+void tfa_get_hw_features_from_cnt(struct tfa_device *tfa, int *hw_feature_register);
 
 /**
  * Get sw feature bits from container file
  * @param tfa the device struct pointer
  * @param sw_feature_register pointer to where sw features are stored
  */
-void get_sw_features_from_cnt(struct tfa_device *tfa, int sw_feature_register[2]);
+void tfa_get_sw_features_from_cnt(struct tfa_device *tfa, int sw_feature_register[2]);
 
 /**
  * Factory trimming for the Boost converter
@@ -338,6 +338,13 @@ void get_sw_features_from_cnt(struct tfa_device *tfa, int sw_feature_register[2]
  * @param tfa the device struct pointer
  */
 enum Tfa98xx_Error tfa98xx_factory_trimmer(struct tfa_device *tfa);
+
+/**
+ * Control for PWM phase shift 
+ * @param tfa the device struct pointer
+ */
+ enum Tfa98xx_Error tfa98xx_set_phase_shift(struct tfa_device *tfa);
+ 
 
 /**
  * Search for filters settings and if found then write them to the device

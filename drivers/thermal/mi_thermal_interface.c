@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0-only
+
 #include <linux/cpu_cooling.h>
 #include <linux/cpufreq.h>
 #include <linux/device.h>
@@ -12,7 +14,9 @@
 #include <linux/string.h>
 #include <linux/suspend.h>
 #include <linux/thermal.h>
+
 #include <drm/mi_disp_notifier.h>
+
 #include <net/netlink.h>
 #include <net/genetlink.h>
 
@@ -22,7 +26,6 @@ struct mi_thermal_device  {
 	struct device *dev;
 	struct class *class;
 	struct attribute_group attrs;
-
 };
 
 static struct mi_thermal_device mi_thermal_dev;
@@ -31,6 +34,7 @@ struct screen_monitor {
 	struct notifier_block thermal_notifier;
 	int screen_state;
 };
+
 struct screen_monitor sm;
 
 static ssize_t thermal_screen_state_show(struct device *dev,
@@ -39,8 +43,7 @@ static ssize_t thermal_screen_state_show(struct device *dev,
 	return snprintf(buf, PAGE_SIZE, "%d\n", sm.screen_state);
 }
 
-static DEVICE_ATTR(screen_state, 0664,
-		thermal_screen_state_show, NULL);
+static DEVICE_ATTR(screen_state, 0664, thermal_screen_state_show, NULL);
 
 static struct attribute *mi_thermal_dev_attr_group[] = {
 	&dev_attr_screen_state.attr,
@@ -86,8 +89,9 @@ static int screen_state_for_thermal_callback(struct notifier_block *nb,
 		break;
 	}
 
-	pr_warn("%s: %s, sm.screen_state = %d\n", __func__, get_screen_state_name(blank),
+	pr_info("%s: %s, sm.screen_state = %d\n", __func__, get_screen_state_name(blank),
 			sm.screen_state);
+
 	sysfs_notify(&mi_thermal_dev.dev->kobj, NULL, "screen_state");
 
 	return NOTIFY_OK;
@@ -96,15 +100,16 @@ static int screen_state_for_thermal_callback(struct notifier_block *nb,
 static int create_thermal_message_node(void)
 {
 	int ret = 0;
+
 	mi_thermal_dev.class = &thermal_class;
 	mi_thermal_dev.dev = &thermal_message_dev;
 	mi_thermal_dev.attrs.attrs = mi_thermal_dev_attr_group;
 	ret = sysfs_create_group(&mi_thermal_dev.dev->kobj, &mi_thermal_dev.attrs);
 	if (ret) {
 		pr_err("%s ERROR: Cannot create sysfs structure!:%d\n", __func__, ret);
-		ret = -ENODEV;
-		return ret;
+		return -ENODEV;
 	}
+
 	return ret;
 }
 
@@ -118,26 +123,24 @@ static void destroy_thermal_message_node(void)
 
 static int __init mi_thermal_interface_init(void)
 {
-	if (create_thermal_message_node()){
+	if (create_thermal_message_node())
 		pr_warn("Thermal: create screen state failed\n");
-	}
+
 	sm.thermal_notifier.notifier_call = screen_state_for_thermal_callback;
-	if (mi_disp_register_client(&sm.thermal_notifier) < 0) {
+	if (mi_disp_register_client(&sm.thermal_notifier) < 0)
 		pr_warn("Thermal: register screen state callback failed\n");
-	}
+
 	return 0;
 }
+module_init(mi_thermal_interface_init);
 
 static void __exit mi_thermal_interface_exit(void)
 {
 	mi_disp_unregister_client(&sm.thermal_notifier);
 	destroy_thermal_message_node();
 }
-
-module_init(mi_thermal_interface_init);
 module_exit(mi_thermal_interface_exit);
 
 MODULE_AUTHOR("Fankl");
 MODULE_DESCRIPTION("Xiaomi thermal control interface");
 MODULE_LICENSE("GPL v2");
-

@@ -41,6 +41,7 @@
 #include <linux/kthread.h>
 #include <uapi/linux/sched/types.h>
 #include <drm/drm_of.h>
+#include <drm/drm_auth.h>
 #include <drm/drm_probe_helper.h>
 
 #include "msm_drv.h"
@@ -65,8 +66,10 @@
 #define MSM_VERSION_MINOR	4
 #define MSM_VERSION_PATCHLEVEL	0
 
+#ifdef CONFIG_MACH_XIAOMI
 atomic_t resume_pending;
 wait_queue_head_t resume_wait_q;
+#endif
 
 #define LASTCLOSE_TIMEOUT_MS	500
 
@@ -84,6 +87,8 @@ wait_queue_head_t resume_wait_q;
 		} while ((!cond) && (ret == 0) &&			\
 			(ktime_compare_safe(exp_ktime, cur_ktime) > 0));\
 	} while (0)
+
+static DEFINE_MUTEX(msm_release_lock);
 
 static void msm_fb_output_poll_changed(struct drm_device *dev)
 {
@@ -616,10 +621,21 @@ static int msm_drm_display_thread_create(struct sched_param param,
 		priv->disp_thread[i].crtc_id = priv->crtcs[i]->base.id;
 		kthread_init_worker(&priv->disp_thread[i].worker);
 		priv->disp_thread[i].dev = ddev;
-		priv->disp_thread[i].thread =
-			kthread_run(kthread_worker_fn,
-				&priv->disp_thread[i].worker,
-				"crtc_commit:%d", priv->disp_thread[i].crtc_id);
+		/* Only pin actual display thread to big cluster */
+		if (i == 0) {
+			priv->disp_thread[i].thread =
+				kthread_run_perf_critical(cpu_prime_mask,
+					kthread_worker_fn,
+					&priv->disp_thread[i].worker,
+					"crtc_commit:%d", priv->disp_thread[i].crtc_id);
+			pr_info("%i to big cluster", priv->disp_thread[i].crtc_id);
+		} else {
+			priv->disp_thread[i].thread =
+				kthread_run(kthread_worker_fn,
+					&priv->disp_thread[i].worker,
+					"crtc_commit:%d", priv->disp_thread[i].crtc_id);
+			pr_info("%i to little cluster", priv->disp_thread[i].crtc_id);
+		}
 		ret = sched_setscheduler(priv->disp_thread[i].thread,
 							SCHED_FIFO, &param);
 		if (ret)
@@ -635,10 +651,21 @@ static int msm_drm_display_thread_create(struct sched_param param,
 		priv->event_thread[i].crtc_id = priv->crtcs[i]->base.id;
 		kthread_init_worker(&priv->event_thread[i].worker);
 		priv->event_thread[i].dev = ddev;
-		priv->event_thread[i].thread =
-			kthread_run(kthread_worker_fn,
-				&priv->event_thread[i].worker,
-				"crtc_event:%d", priv->event_thread[i].crtc_id);
+		/* Only pin first event thread to big cluster */
+		if (i == 0) {
+			priv->event_thread[i].thread =
+				kthread_run_perf_critical(cpu_prime_mask,
+					kthread_worker_fn,
+					&priv->event_thread[i].worker,
+					"crtc_event:%d", priv->event_thread[i].crtc_id);
+			pr_info("%i to big cluster", priv->event_thread[i].crtc_id);
+		} else {
+			priv->event_thread[i].thread =
+				kthread_run(kthread_worker_fn,
+					&priv->event_thread[i].worker,
+					"crtc_event:%d", priv->event_thread[i].crtc_id);
+			pr_info("%i to little cluster", priv->event_thread[i].crtc_id);
+		}
 		/**
 		 * event thread should also run at same priority as disp_thread
 		 * because it is handling frame_done events. A lower priority
@@ -683,8 +710,8 @@ static int msm_drm_display_thread_create(struct sched_param param,
 	 * other important events.
 	 */
 	kthread_init_worker(&priv->pp_event_worker);
-	priv->pp_event_thread = kthread_run(kthread_worker_fn,
-			&priv->pp_event_worker, "pp_event");
+	priv->pp_event_thread = kthread_run_perf_critical(cpu_prime_mask,
+			kthread_worker_fn, &priv->pp_event_worker, "pp_event");
 
 	ret = sched_setscheduler(priv->pp_event_thread,
 						SCHED_FIFO, &param);
@@ -990,6 +1017,15 @@ static int msm_open(struct drm_device *dev, struct drm_file *file)
 static void context_close(struct msm_file_private *ctx)
 {
 	kfree(ctx);
+}
+
+static void msm_preclose(struct drm_device *dev, struct drm_file *file)
+{
+	struct msm_drm_private *priv = dev->dev_private;
+	struct msm_kms *kms = priv->kms;
+
+	if (kms && kms->funcs && kms->funcs->preclose)
+		kms->funcs->preclose(kms, file);
 }
 
 static void msm_postclose(struct drm_device *dev, struct drm_file *file)
@@ -1479,14 +1515,27 @@ void msm_mode_object_event_notify(struct drm_mode_object *obj,
 
 static int msm_release(struct inode *inode, struct file *filp)
 {
-	struct drm_file *file_priv = filp->private_data;
-	struct drm_minor *minor = file_priv->minor;
-	struct drm_device *dev = minor->dev;
-	struct msm_drm_private *priv = dev->dev_private;
+	struct drm_file *file_priv;
+	struct drm_minor *minor;
+	struct drm_device *dev;
+	struct msm_drm_private *priv;
 	struct msm_drm_event *node, *temp, *tmp_node;
 	u32 count;
 	unsigned long flags;
 	LIST_HEAD(tmp_head);
+	int ret = 0;
+
+	mutex_lock(&msm_release_lock);
+
+	file_priv = filp->private_data;
+	if (!file_priv) {
+		ret = -EINVAL;
+		goto end;
+	}
+
+	minor = file_priv->minor;
+	dev = minor->dev;
+	priv = dev->dev_private;
 
 	spin_lock_irqsave(&dev->event_lock, flags);
 	list_for_each_entry_safe(node, temp, &priv->client_event_list,
@@ -1516,7 +1565,19 @@ static int msm_release(struct inode *inode, struct file *filp)
 		kfree(node);
 	}
 
-	return drm_release(inode, filp);
+	/**
+	 * Handle preclose operation here for removing fb's whose
+	 * refcount > 1. This operation is not triggered from upstream
+	 * drm as msm_driver does not support DRIVER_LEGACY feature.
+	 */
+	if (drm_is_current_master(file_priv))
+		msm_preclose(dev, file_priv);
+
+	ret = drm_release(inode, filp);
+	filp->private_data = NULL;
+end:
+	mutex_unlock(&msm_release_lock);
+	return ret;
 }
 
 /**
@@ -1755,6 +1816,7 @@ static struct drm_driver msm_driver = {
 };
 
 #ifdef CONFIG_PM_SLEEP
+#ifdef CONFIG_MACH_XIAOMI
 static int msm_pm_prepare(struct device *dev)
 {
 	atomic_inc(&resume_pending);
@@ -1767,6 +1829,7 @@ static void msm_pm_complete(struct device *dev)
 	wake_up_all(&resume_wait_q);
 	return;
 }
+#endif
 
 static int msm_pm_suspend(struct device *dev)
 {
@@ -1853,8 +1916,10 @@ static int msm_runtime_resume(struct device *dev)
 #endif
 
 static const struct dev_pm_ops msm_pm_ops = {
+#ifdef CONFIG_MACH_XIAOMI
 	.prepare = msm_pm_prepare,
 	.complete = msm_pm_complete,
+#endif
 	SET_SYSTEM_SLEEP_PM_OPS(msm_pm_suspend, msm_pm_resume)
 	SET_RUNTIME_PM_OPS(msm_runtime_suspend, msm_runtime_resume, NULL)
 };
@@ -2117,7 +2182,7 @@ static int msm_drm_component_dependency_check(struct device *dev)
 			struct platform_device *pdev =
 					of_find_device_by_node(node);
 			if (!platform_get_drvdata(pdev)) {
-				dev_err(dev,
+				dev_dbg(dev,
 					"qcom,sde_rscc not probed yet\n");
 				return -EPROBE_DEFER;
 			} else {

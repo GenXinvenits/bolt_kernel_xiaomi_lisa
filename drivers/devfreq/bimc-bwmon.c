@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2014-2020, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 #define pr_fmt(fmt) "bimc-bwmon: " fmt
@@ -753,8 +752,7 @@ static irqreturn_t bwmon_intr_thread(int irq, void *dev)
 {
 	struct bwmon *m = dev;
 
-	if(!oops_in_progress)
-		update_bw_hwmon(&m->hw);
+	update_bw_hwmon(&m->hw);
 	return IRQ_HANDLED;
 }
 

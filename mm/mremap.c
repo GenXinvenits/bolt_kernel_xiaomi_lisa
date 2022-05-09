@@ -246,6 +246,9 @@ unsigned long move_page_tables(struct vm_area_struct *vma,
 	struct mmu_notifier_range range;
 	pmd_t *old_pmd, *new_pmd;
 
+	if (!len)
+		return 0;
+
 	old_end = old_addr + len;
 	flush_cache_range(vma, old_addr, old_end);
 
@@ -363,7 +366,7 @@ static unsigned long move_vma(struct vm_area_struct *vma,
 	 * to be mapped in our back while we are copying the PTEs.
 	 */
 	if (vma != new_vma)
-		vm_raw_write_begin(vma);
+		vm_write_begin(vma);
 
 	moved_len = move_page_tables(vma, old_addr, new_vma, new_addr, old_len,
 				     need_rmap_locks);
@@ -382,7 +385,7 @@ static unsigned long move_vma(struct vm_area_struct *vma,
 		move_page_tables(new_vma, new_addr, vma, old_addr, moved_len,
 				 true);
 		if (vma != new_vma)
-			vm_raw_write_end(vma);
+			vm_write_end(vma);
 		vma = new_vma;
 		old_len = new_len;
 		old_addr = new_addr;
@@ -392,9 +395,9 @@ static unsigned long move_vma(struct vm_area_struct *vma,
 		arch_remap(mm, old_addr, old_addr + old_len,
 			   new_addr, new_addr + new_len);
 		if (vma != new_vma)
-			vm_raw_write_end(vma);
+			vm_write_end(vma);
 	}
-	vm_raw_write_end(new_vma);
+	vm_write_end(new_vma);
 
 	/* Conceal VM_ACCOUNT so old reservation is not undone */
 	if (vm_flags & VM_ACCOUNT) {
@@ -651,7 +654,7 @@ SYSCALL_DEFINE5(mremap, unsigned long, addr, unsigned long, old_len,
 	if (!new_len)
 		return ret;
 
-	if (down_write_killable(&current->mm->mmap_sem))
+	if (mmap_write_lock_killable(current->mm))
 		return -EINTR;
 
 	if (flags & MREMAP_FIXED) {
@@ -742,9 +745,9 @@ out:
 		locked = 0;
 	}
 	if (downgraded)
-		up_read(&current->mm->mmap_sem);
+		mmap_read_unlock(current->mm);
 	else
-		up_write(&current->mm->mmap_sem);
+		mmap_write_unlock(current->mm);
 	if (locked && new_len > old_len)
 		mm_populate(new_addr + old_len, new_len - old_len);
 	userfaultfd_unmap_complete(mm, &uf_unmap_early);

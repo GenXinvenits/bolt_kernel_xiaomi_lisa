@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 #include <linux/module.h>
@@ -689,7 +688,8 @@ int cam_sensor_match_id(struct cam_sensor_ctrl_t *s_ctrl)
 	rc = camera_io_dev_read(
 		&(s_ctrl->io_master_info),
 		slave_info->sensor_id_reg_addr,
-		&chipid,  s_ctrl->sensor_probe_addr_type,
+		&chipid,
+		s_ctrl->sensor_probe_addr_type,
 		s_ctrl->sensor_probe_data_type);
 
 	CAM_DBG(CAM_SENSOR, "read id: 0x%x expected id 0x%x:",
@@ -839,6 +839,11 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 
 		sensor_acq_dev.device_handle =
 			cam_create_device_hdl(&bridge_params);
+		if (sensor_acq_dev.device_handle <= 0) {
+			rc = -EFAULT;
+			CAM_ERR(CAM_SENSOR, "Can not create device handle");
+			goto release_mutex;
+		}
 		s_ctrl->bridge_intf.device_hdl = sensor_acq_dev.device_handle;
 		s_ctrl->bridge_intf.session_hdl = sensor_acq_dev.session_handle;
 
@@ -1324,24 +1329,28 @@ int cam_sensor_apply_settings(struct cam_sensor_ctrl_t *s_ctrl,
 			i2c_set[offset].request_id == req_id) {
 			list_for_each_entry(i2c_list,
 				&(i2c_set[offset].list_head), list) {
-                    rc = cam_sensor_i2c_modes_util(
-                        &(s_ctrl->io_master_info),
-                        i2c_list);
-                    if (rc < 0) {
-                        CAM_ERR(CAM_SENSOR,
-                                "Failed to apply settings: %d",
-                                rc);
-                        msleep(20);
-                        rc = cam_sensor_i2c_modes_util(
-                            &(s_ctrl->io_master_info),
-                            i2c_list);
-                        if(rc < 0 ) {
-                            CAM_ERR(CAM_SENSOR,
-                                    "retry Failed to apply settings: %d",
-                                    rc);
-                            return rc;
-                        }
-                    }
+				rc = cam_sensor_i2c_modes_util(
+					&(s_ctrl->io_master_info),
+					i2c_list);
+				if (rc < 0) {
+					CAM_ERR(CAM_SENSOR,
+						"Failed to apply settings: %d",
+						rc);
+#ifndef CONFIG_MACH_XIAOMI
+					return rc;
+#else
+					msleep(20);
+					rc = cam_sensor_i2c_modes_util(
+						&(s_ctrl->io_master_info),
+						i2c_list);
+					if (rc < 0 ) {
+						CAM_ERR(CAM_SENSOR,
+							"retry Failed to apply settings: %d",
+							rc);
+						return rc;
+					}
+#endif
+				}
 			}
 			CAM_DBG(CAM_SENSOR, "applied req_id: %llu", req_id);
 		} else {

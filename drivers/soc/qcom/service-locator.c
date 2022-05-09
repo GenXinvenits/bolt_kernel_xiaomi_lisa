@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2015-2020, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 #define pr_fmt(fmt) "servloc: %s: " fmt, __func__
@@ -26,7 +25,11 @@
 #define QMI_SERVREG_LOC_SERVER_INITIAL_TIMEOUT		2000
 #define QMI_SERVREG_LOC_SERVER_TIMEOUT			2000
 #define INITIAL_TIMEOUT					100000
+#ifndef CONFIG_MACH_XIAOMI
+#define LOCATOR_SERVICE_TIMEOUT				300000
+#else
 #define LOCATOR_SERVICE_TIMEOUT				1200000
+#endif
 
 #define LOCATOR_NOT_PRESENT	0
 #define LOCATOR_PRESENT		1

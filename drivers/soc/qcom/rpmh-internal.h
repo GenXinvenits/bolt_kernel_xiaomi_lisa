@@ -1,12 +1,14 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /* Copyright (c) 2016-2020, The Linux Foundation. All rights reserved. */
-/* Copyright (C) 2021 XiaoMi, Inc. */
 
 #ifndef __RPM_INTERNAL_H__
 #define __RPM_INTERNAL_H__
 
 #include <linux/bitmap.h>
+#ifdef CONFIG_MACH_XIAOMI
 #include <linux/wait.h>
+#endif
+
 #include <soc/qcom/tcs.h>
 
 #define TCS_TYPE_NR			4
@@ -27,6 +29,7 @@ struct rsc_drv;
  * @offset:    start of the TCS group relative to the TCSes in the RSC
  * @num_tcs:   number of TCSes in this type
  * @ncpt:      number of commands in each TCS
+ * @lock:      lock for synchronizing this TCS writes
  * @req:       requests that are sent from the TCS
  * @cmd_cache: flattened cache of cmds in sleep/wake TCS
  * @slots:     indicates which of @cmd_addr are occupied
@@ -38,6 +41,9 @@ struct tcs_group {
 	u32 offset;
 	int num_tcs;
 	int ncpt;
+#ifndef CONFIG_MACH_XIAOMI
+	spinlock_t lock;
+#endif
 	const struct tcs_request *req[MAX_TCS_PER_TYPE];
 	u32 *cmd_cache;
 	DECLARE_BITMAP(slots, MAX_TCS_SLOTS);
@@ -108,7 +114,9 @@ struct rsc_drv {
 	struct tcs_group tcs[TCS_TYPE_NR];
 	DECLARE_BITMAP(tcs_in_use, MAX_TCS_NR);
 	spinlock_t lock;
+#ifdef CONFIG_MACH_XIAOMI
 	wait_queue_head_t tcs_wait;
+#endif
 	struct rpmh_ctrlr client;
 	int irq;
 	void *ipc_log_ctx;

@@ -1,18 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Gadget Function Driver for DTP
  *
- * Copyright (C) 2020 xiaomi, Inc.
  * Copyright (C) 2021 XiaoMi, Inc.
  * Author: Deng yong jian <dengyongjian@xiaomi.com>
- *
- * This software is licensed under the terms of the GNU General Public
- * License version 2, as published by the Free Software Foundation, and
- * may be copied, distributed, and modified under those terms.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  *
  */
 
@@ -23,7 +14,6 @@
 #include <linux/wait.h>
 #include <linux/err.h>
 #include <linux/interrupt.h>
-
 #include <linux/seq_file.h>
 #include <linux/debugfs.h>
 #include <linux/types.h>
@@ -31,7 +21,6 @@
 #include <linux/device.h>
 #include <linux/miscdevice.h>
 #include <linux/ipc_logging.h>
-
 #include <linux/usb.h>
 #include <linux/usb_usual.h>
 #include <linux/usb/ch9.h>
@@ -151,7 +140,7 @@ struct dtp_dev {
 		unsigned long vfs_wbytes;
 		unsigned int vfs_rtime;
 		unsigned int vfs_wtime;
-	}history[MAX_HISTORY_NUM];
+	} history[MAX_HISTORY_NUM];
 	unsigned int dbg_read_index;
 	unsigned int dbg_write_index;
 };
@@ -279,7 +268,7 @@ static struct usb_descriptor_header *ss_descs[] = {
 static struct usb_string usb_string_defs[] = {
 	/* Naming interface "DTP" so libdtp will recognize us */
 	[INTERFACE_STRING_INDEX].s	= "DTP",
-	{  },	/* end of list */
+	{ },	/* end of list */
 };
 
 static struct usb_gadget_strings usb_string_table = {
@@ -292,11 +281,9 @@ static struct usb_gadget_strings *usb_strings[] = {
 	NULL,
 };
 
-
 static struct dtp_dev *_dtp_dev = NULL;
 static struct dentry *root_dentry = NULL;
 static const char device_name[] = DRIVER_NAME "_usb";
-
 
 static inline struct dtp_dev *get_dtp_dev(void)
 {
@@ -320,13 +307,12 @@ static inline struct dtp_instance *to_instance(const struct usb_function_instanc
 
 /*
  * Function: atomic_try_down - inc refcnt, if the refcnt is 1, return success,otherwise return failed
- * */
-
+ */
 static inline int atomic_try_down(atomic_t *refcnt)
 {
-	if (atomic_inc_return(refcnt) == 1) {
+	if (atomic_inc_return(refcnt) == 1)
 		return 0;
-	} else {
+	else {
 		atomic_dec(refcnt);
 		return -1;
 	}
@@ -334,7 +320,7 @@ static inline int atomic_try_down(atomic_t *refcnt)
 
 /*
  * Function: atomic_up - dec refcnt
- * */
+ */
 static inline void atomic_up(atomic_t *refcnt)
 {
 	atomic_dec(refcnt);
@@ -342,7 +328,7 @@ static inline void atomic_up(atomic_t *refcnt)
 
 /*
  * Function: usb_request_add - add a usb_request to the idl list
- * */
+ */
 static void usb_request_add(struct dtp_dev *dev, struct list_head *head,
 		struct usb_request *req)
 {
@@ -352,9 +338,10 @@ static void usb_request_add(struct dtp_dev *dev, struct list_head *head,
 	list_add_tail(&req->list, head);
 	spin_unlock_irqrestore(&dev->lock, flags);
 }
+
 /*
  * Function: usb_request_get - get a usb_requset from the idle list
- * */
+ */
 static struct usb_request *usb_request_get(struct dtp_dev *dev, struct list_head *head)
 {
 	unsigned long flags;
@@ -374,7 +361,7 @@ static struct usb_request *usb_request_get(struct dtp_dev *dev, struct list_head
 
 /*
  * Function: usb_request_new - alloc a new usb_request and transfer buffer
- * */
+ */
 static struct usb_request *usb_request_new(struct usb_ep *ep, int buffer_size)
 {
 	struct usb_request *req = usb_ep_alloc_request(ep, GFP_KERNEL);
@@ -394,7 +381,7 @@ static struct usb_request *usb_request_new(struct usb_ep *ep, int buffer_size)
 
 /*
  * Function: usb_request_free - free a usb_request and transfer buffer
- * */
+ */
 static void usb_request_free(struct usb_request *req, struct usb_ep *ep)
 {
 	if (req) {
@@ -405,7 +392,7 @@ static void usb_request_free(struct usb_request *req, struct usb_ep *ep)
 
 /*
  * Function: usb_request_complete_in - be called after tx transfer done
- * */
+ */
 static void usb_request_complete_in(struct usb_ep *ep, struct usb_request *req)
 {
 	struct dtp_dev *dev = get_dtp_dev();
@@ -424,7 +411,7 @@ static void usb_request_complete_in(struct usb_ep *ep, struct usb_request *req)
 
 /*
  * Function: usb_request_complete_out - be called after rx transfer done
- * */
+ */
 static void usb_request_complete_out(struct usb_ep *ep, struct usb_request *req)
 {
 	struct dtp_dev *dev = get_dtp_dev();
@@ -442,7 +429,7 @@ static void usb_request_complete_out(struct usb_ep *ep, struct usb_request *req)
 
 /*
  * Function: usb_request_complete_intr - be called after intr transfer done
- * */
+ */
 static void usb_request_complete_intr(struct usb_ep *ep, struct usb_request *req)
 {
 	struct dtp_dev *dev = get_dtp_dev();
@@ -560,7 +547,7 @@ static const struct file_operations debug_fops = {
 
 /*
  * Function: debug_debugfs_init - debugfs init
- * */
+ */
 static void debug_debugfs_init(void)
 {
 	struct dentry *sub_dentry;
@@ -749,7 +736,6 @@ state_err:
 	return ret;
 }
 
-
 /*
  * Function: usb_write - The api to write data to usb endpoint
  */
@@ -821,7 +807,6 @@ static ssize_t usb_write(struct file *fp, const char __user *buf, size_t count, 
 			break;
 		}
 
-
 		req->length = xfer;
 		ret = usb_ep_queue(dev->ep_in, req, GFP_KERNEL);
 		if (ret < 0) {
@@ -849,7 +834,6 @@ state_err:
 	log_dbg("returning %d state:%d\n", r, dev->state);
 	return r;
 }
-
 
 static int usb_send_event(struct dtp_dev *dev, struct dtp_event *event)
 {
@@ -908,6 +892,7 @@ static long send_receive_ioctl(struct file *fp, unsigned int code,
 		ret = -ECANCELED;
 		goto err1;
 	}
+
 	if (dev->state == e_offline) {
 		spin_unlock_irqrestore(&dev->lock, flags);
 		ret = -ENODEV;
@@ -930,11 +915,10 @@ static long send_receive_ioctl(struct file *fp, unsigned int code,
 	/* make sure write is done before parameters are read */
 	smp_wmb();
 
-	if (code == DTP_SEND_FILE) {
+	if (code == DTP_SEND_FILE)
 		work = &dev->send_file_work;
-	} else {
+	else
 		work = &dev->receive_file_work;
-	}
 
 	/* We do the file transfer on a work queue so it will run
 	 * in kernel context, which is necessary for vfs_read and
@@ -1070,7 +1054,6 @@ fail:
 }
 #endif
 
-
 static int usb_open(struct inode *ip, struct file *fp)
 {
 	struct dtp_dev *dev = get_dtp_dev();
@@ -1099,6 +1082,7 @@ static int usb_release(struct inode *ip, struct file *fp)
 	atomic_up(&dev->refcnt);
 	return 0;
 }
+
 static struct file_operations usb_fops = {
 	.owner = THIS_MODULE,
 	.read = usb_read,
@@ -1117,11 +1101,9 @@ static struct miscdevice usb_device = {
 	.fops = &usb_fops,
 };
 
-
-
 /*
  * Function send_file_work - read from a local file and write to USB
- * */
+ */
 static void send_file_work(struct work_struct *data)
 {
 	struct dtp_dev *dev = container_of(data, struct dtp_dev, send_file_work);
@@ -1151,7 +1133,6 @@ static void send_file_work(struct work_struct *data)
 		goto fail;
 	}
 	spin_unlock_irqrestore(&dev->lock, flags);
-
 
 	/* we need to send a zero length packet to signal the end of transfer
 	 * if the transfer size is aligned to a packet boundary.
@@ -1228,10 +1209,9 @@ fail:
 	smp_wmb();
 }
 
-
 /*
  * Function: receive_file_work - read data from USB and write to a local file
- * */
+ */
 static void receive_file_work(struct work_struct *data)
 {
 	struct dtp_dev *dev = container_of(data, struct dtp_dev, receive_file_work);
@@ -1361,7 +1341,7 @@ fail:
 
 /*
  * Function: init_dtp_dev - initialize lock,wait queue,work queue
- * */
+ */
 static int init_dtp_dev(struct dtp_instance *inst)
 {
 	struct dtp_dev *dev = NULL;
@@ -1425,7 +1405,6 @@ err1:
 	_dtp_dev = NULL;
 	kfree(dev);
 	return ret;
-
 }
 
 static void uninit_dtp_dev(struct dtp_instance *inst)
@@ -1445,7 +1424,6 @@ static void uninit_dtp_dev(struct dtp_instance *inst)
 	_dtp_dev = NULL;
 }
 
-
 static void configfs_item_release(struct config_item *item)
 {
 	struct dtp_instance *inst = ci_to_instance(item);
@@ -1462,10 +1440,9 @@ static struct config_item_type configfs_item_type = {
 	.ct_owner    = THIS_MODULE,
 };
 
-
 /*
  * Function: set_instance_name - set the usb function instance name when boot sequence
- * */
+ */
 static int set_instance_name(struct usb_function_instance *fi, const char *name)
 {
 	struct dtp_instance *inst = to_instance(fi);
@@ -1489,7 +1466,7 @@ static int set_instance_name(struct usb_function_instance *fi, const char *name)
 
 /*
  * Function: free_func_instance - uninit dtp_dev and free instance name
- * */
+ */
 static void free_func_instance(struct usb_function_instance *fi)
 {
 	struct dtp_instance *inst = to_instance(fi);
@@ -1507,7 +1484,7 @@ static void free_func_instance(struct usb_function_instance *fi)
 /*
  * Function: create_bulk_endpoints - create usb in/out/intr endpoint for transfer
  * create endpoints and allocate usb_request
- * */
+ */
 static int create_bulk_endpoints(struct dtp_dev *dev,
 				struct usb_endpoint_descriptor *in_desc,
 				struct usb_endpoint_descriptor *out_desc,
@@ -1517,7 +1494,6 @@ static int create_bulk_endpoints(struct dtp_dev *dev,
 	struct usb_request *req = NULL;
 	struct usb_ep *ep = NULL;
 	int i = 0;
-
 
 	ep = usb_ep_autoconfig(cdev->gadget, in_desc);
 	if (!ep) {
@@ -1606,8 +1582,10 @@ fail:
 }
 
 /*
- *Function: _function_setup - be called by function_setup, Respond to the usb ctl request from the host side, such as query device status
- * */
+ * Function: _function_setup - be called by function_setup,
+ * Respond to the usb ctl request from the host side,
+ * such as query device status
+ */
 static int _function_setup(struct usb_composite_dev *cdev, const struct usb_ctrlrequest *ctrl)
 {
 	u16 w_index = le16_to_cpu(ctrl->wIndex);
@@ -1662,9 +1640,10 @@ static int _function_setup(struct usb_composite_dev *cdev, const struct usb_ctrl
 }
 
 /*
- * Function: function_bind - binding the usb_function, be called when the 2st of plugging
+ * Function: function_bind - binding the usb_function,
+ * be called when the 2st of plugging
  * create usb endpoints
- * */
+ */
 static int function_bind(struct usb_configuration *c, struct usb_function *f)
 {
 	struct dtp_instance *inst = to_instance(f->fi);
@@ -1673,7 +1652,6 @@ static int function_bind(struct usb_configuration *c, struct usb_function *f)
 	unsigned max_burst = 0;
 	int id = 0;
 	int ret = 0;
-
 
 	log_dbg("dev: %pK\n", dev);
 
@@ -1687,8 +1665,6 @@ static int function_bind(struct usb_configuration *c, struct usb_function *f)
 		return id;
 	}
 
-	//usb_interface_desc.bInterfaceNumber = id;
-
 	if (usb_string_defs[INTERFACE_STRING_INDEX].id == 0) {
 		ret = usb_string_id(c->cdev);
 		if (ret < 0) {
@@ -1698,7 +1674,6 @@ static int function_bind(struct usb_configuration *c, struct usb_function *f)
 		usb_string_defs[INTERFACE_STRING_INDEX].id = ret;
 		usb_interface_desc.iInterface = ret;
 	}
-
 
 	if (cdev->use_os_string) {
 		f->os_desc_table = kzalloc(sizeof(*f->os_desc_table), GFP_KERNEL);
@@ -1743,7 +1718,7 @@ static int function_bind(struct usb_configuration *c, struct usb_function *f)
 /*
  * Function: function_unbind - be called when the 2st of unpluging
  * release all of the usb_request
- * */
+ */
 static void function_unbind(struct usb_configuration *c, struct usb_function *f)
 {
 	struct dtp_instance *inst = to_instance(f->fi);
@@ -1783,7 +1758,7 @@ static void function_unbind(struct usb_configuration *c, struct usb_function *f)
 /*
  * Function: function_disable - be called when the 1st of unpluging
  * disable all of the usb endpoint
- * */
+ */
 static void function_disable(struct usb_function *f)
 {
 	struct dtp_dev *dev = to_dtp_dev(f);
@@ -1801,13 +1776,12 @@ static void function_disable(struct usb_function *f)
 
 	/*readers may be blocked waiting for us to go online, prevent readers waiting forever*/
 	wake_up(&dev->read_wq);
-
 }
 
 /*
  * Function function_set_alt - be called when the 4st of plugging
  * config and enable all of the usb endpoint
- * */
+ */
 static int function_set_alt(struct usb_function *f,	unsigned intf, unsigned alt)
 {
 	struct usb_composite_dev *cdev = f->config->cdev;
@@ -1849,8 +1823,8 @@ static int function_set_alt(struct usb_function *f,	unsigned intf, unsigned alt)
 }
 
 /*
- *Function: function_setup - be called when the 3st of plugging
- * */
+ * Function: function_setup - be called when the 3st of plugging
+ */
 static int function_setup(struct usb_function *f, const struct usb_ctrlrequest *ctrl)
 {
 	return _function_setup(f->config->cdev, ctrl);
@@ -1863,10 +1837,9 @@ static void function_free(struct usb_function *f)
 	log_dbg("dev: %pK\n", dev);
 }
 
-
 /*
  * Function: alloc_usb_func_instance - be called when the 1st of booting up
- * */
+ */
 static struct usb_function_instance *alloc_usb_func_instance(void)
 {
 	struct dtp_instance *inst = NULL;
@@ -1909,7 +1882,7 @@ static struct usb_function_instance *alloc_usb_func_instance(void)
 
 /*
  * Function: alloc_usb_func - register usb function, be called when the 1st of plugging
- * */
+ */
 static struct usb_function *alloc_usb_func(struct usb_function_instance *fi)
 {
 	struct dtp_instance *inst = to_instance(fi);
@@ -1919,7 +1892,6 @@ static struct usb_function *alloc_usb_func(struct usb_function_instance *fi)
 		log_err("cant found dev\n");
 		return ERR_PTR(-EINVAL);
 	}
-
 
 	dev->function.name = DRIVER_NAME;
 	dev->function.strings = usb_strings;
@@ -1945,7 +1917,7 @@ static struct usb_function *alloc_usb_func(struct usb_function_instance *fi)
 /*
  * Boot up sequence
  * 1st: alloc_usb_func_instance
- * */
+ */
 
 /*
  * Bind sequence         (plugging usb)
@@ -1960,11 +1932,11 @@ static struct usb_function *alloc_usb_func(struct usb_function_instance *fi)
  * Unbind sequence       (unpluging usb)
  * 1st: function_disable (disable usb endpoint)
  * 2st: function_unbind  (release usb requests list)
- * */
+ */
 
 DECLARE_USB_FUNCTION(dtp, alloc_usb_func_instance, alloc_usb_func);
 
-static int gadget_dtp_init(void)
+static int __init gadget_dtp_init(void)
 {
 	return usb_function_register(&dtpusb_func);
 }

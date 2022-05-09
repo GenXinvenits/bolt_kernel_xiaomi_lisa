@@ -191,7 +191,7 @@ struct bio {
 
 	unsigned short		bi_vcnt;	/* how many bio_vec's */
 #ifdef CONFIG_PERF_HUMANTASK
-	unsigned int            human_task;
+	unsigned int		human_task;
 #endif
 
 	/*

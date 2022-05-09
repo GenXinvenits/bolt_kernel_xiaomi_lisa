@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* Copyright (c) 2011-2020, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  */
 #include <linux/bitops.h>
 #include <linux/kernel.h>
@@ -26,7 +25,11 @@
 #define BYTE_BIT_MASK(nr)		(1UL << ((nr) % BITS_PER_BYTE))
 #define BIT_BYTE(nr)			((nr) / BITS_PER_BYTE)
 
+#ifndef CONFIG_MACH_XIAOMI
+#define WCD9XXX_SYSTEM_RESUME_TIMEOUT_MS 100
+#else
 #define WCD9XXX_SYSTEM_RESUME_TIMEOUT_MS 1200
+#endif
 
 #ifndef NO_IRQ
 #define NO_IRQ	(-1)
@@ -180,7 +183,7 @@ bool wcd9xxx_lock_sleep(
 	mutex_lock(&wcd9xxx_res->pm_lock);
 	if (wcd9xxx_res->wlock_holders++ == 0) {
 		pr_debug("%s: holding wake lock\n", __func__);
-		pm_qos_update_request(&wcd9xxx_res->pm_qos_req,
+		cpu_latency_qos_update_request(&wcd9xxx_res->pm_qos_req,
 				      msm_cpuidle_get_deep_idle_latency());
 		pm_stay_awake(wcd9xxx_res->dev);
 	}
@@ -219,7 +222,7 @@ void wcd9xxx_unlock_sleep(
 		 */
 		if (likely(wcd9xxx_res->pm_state == WCD9XXX_PM_AWAKE))
 			wcd9xxx_res->pm_state = WCD9XXX_PM_SLEEPABLE;
-		pm_qos_update_request(&wcd9xxx_res->pm_qos_req,
+		cpu_latency_qos_update_request(&wcd9xxx_res->pm_qos_req,
 				PM_QOS_DEFAULT_VALUE);
 		pm_relax(wcd9xxx_res->dev);
 	}

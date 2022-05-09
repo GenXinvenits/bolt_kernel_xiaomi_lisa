@@ -3,7 +3,6 @@
  * fs/f2fs/checkpoint.c
  *
  * Copyright (c) 2012 Samsung Electronics Co., Ltd.
- * Copyright (C) 2021 XiaoMi, Inc.
  *             http://www.samsung.com/
  */
 #include <linux/fs.h>
@@ -14,7 +13,9 @@
 #include <linux/f2fs_fs.h>
 #include <linux/pagevec.h>
 #include <linux/swap.h>
+#ifdef CONFIG_MACH_XIAOMI
 #include <linux/kthread.h>
+#endif
 
 #include "f2fs.h"
 #include "node.h"
@@ -22,7 +23,9 @@
 #include "trace.h"
 #include <trace/events/f2fs.h>
 
+#ifdef CONFIG_MACH_XIAOMI
 #define DEFAULT_CHECKPOINT_IOPRIO (IOPRIO_PRIO_VALUE(IOPRIO_CLASS_BE, 3))
+#endif
 
 static struct kmem_cache *ino_entry_slab;
 struct kmem_cache *f2fs_inode_entry_slab;
@@ -855,6 +858,7 @@ static struct page *validate_checkpoint(struct f2fs_sb_info *sbi,
 	struct page *cp_page_1 = NULL, *cp_page_2 = NULL;
 	struct f2fs_checkpoint *cp_block = NULL;
 	unsigned long long cur_version = 0, pre_version = 0;
+	unsigned int cp_blocks;
 	int err;
 
 	err = get_checkpoint_version(sbi, cp_addr, &cp_block,
@@ -862,15 +866,16 @@ static struct page *validate_checkpoint(struct f2fs_sb_info *sbi,
 	if (err)
 		return NULL;
 
-	if (le32_to_cpu(cp_block->cp_pack_total_block_count) >
-					sbi->blocks_per_seg) {
+	cp_blocks = le32_to_cpu(cp_block->cp_pack_total_block_count);
+
+	if (cp_blocks > sbi->blocks_per_seg || cp_blocks <= F2FS_CP_PACKS) {
 		f2fs_warn(sbi, "invalid cp_pack_total_block_count:%u",
 			  le32_to_cpu(cp_block->cp_pack_total_block_count));
 		goto invalid_cp;
 	}
 	pre_version = *version;
 
-	cp_addr += le32_to_cpu(cp_block->cp_pack_total_block_count) - 1;
+	cp_addr += cp_blocks - 1;
 	err = get_checkpoint_version(sbi, cp_addr, &cp_block,
 					&cp_page_2, version);
 	if (err)
@@ -1151,7 +1156,8 @@ static bool __need_flush_quota(struct f2fs_sb_info *sbi)
 	if (!is_journalled_quota(sbi))
 		return false;
 
-	down_write(&sbi->quota_sem);
+	if (!down_write_trylock(&sbi->quota_sem))
+		return true;
 	if (is_sbi_flag_set(sbi, SBI_QUOTA_SKIP_FLUSH)) {
 		ret = false;
 	} else if (is_sbi_flag_set(sbi, SBI_QUOTA_NEED_REPAIR)) {
@@ -1231,19 +1237,33 @@ retry_flush_dents:
 		goto retry_flush_quotas;
 	}
 
+#ifndef CONFIG_MACH_XIAOMI
+retry_flush_nodes:
+#endif
 	down_write(&sbi->node_write);
 
 	if (get_pages(sbi, F2FS_DIRTY_NODES)) {
 		up_write(&sbi->node_write);
+#ifdef CONFIG_MACH_XIAOMI
 		up_write(&sbi->node_change);
 		f2fs_unlock_all(sbi);
+#endif
 		atomic_inc(&sbi->wb_sync_req[NODE]);
 		err = f2fs_sync_node_pages(sbi, &wbc, false, FS_CP_NODE_IO);
 		atomic_dec(&sbi->wb_sync_req[NODE]);
-		if (err)
+		if (err) {
+#ifndef CONFIG_MACH_XIAOMI
+			up_write(&sbi->node_change);
+			f2fs_unlock_all(sbi);
+#endif
 			return err;
+		}
 		cond_resched();
+#ifndef CONFIG_MACH_XIAOMI
+		goto retry_flush_nodes;
+#else
 		goto retry_flush_quotas;
+#endif
 	}
 
 	/*
@@ -1609,7 +1629,7 @@ int f2fs_write_checkpoint(struct f2fs_sb_info *sbi, struct cp_control *cpc)
 			goto out;
 		}
 
-		if (NM_I(sbi)->dirty_nat_cnt == 0 &&
+		if (NM_I(sbi)->nat_cnt[DIRTY_NAT] == 0 &&
 				SIT_I(sbi)->dirty_sentries == 0 &&
 				prefree_segments(sbi) == 0) {
 			f2fs_flush_sit_entries(sbi, cpc);
@@ -1694,6 +1714,7 @@ void f2fs_destroy_checkpoint_caches(void)
 	kmem_cache_destroy(f2fs_inode_entry_slab);
 }
 
+#ifdef CONFIG_MACH_XIAOMI
 static int __write_checkpoint_sync(struct f2fs_sb_info *sbi)
 {
 	struct cp_control cpc = { .reason = CP_SYNC, };
@@ -1863,4 +1884,5 @@ void f2fs_init_ckpt_req_control(struct f2fs_sb_info *sbi)
 	init_waitqueue_head(&cprc->ckpt_wait_queue);
 	init_llist_head(&cprc->issue_list);
 	spin_lock_init(&cprc->stat_lock);
-}
+} 
+#endif

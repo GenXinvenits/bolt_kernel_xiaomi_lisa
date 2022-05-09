@@ -2,7 +2,6 @@
 
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 #define pr_fmt(fmt) "%s: " fmt, KBUILD_MODNAME
@@ -77,14 +76,6 @@ static const struct msm_rpmh_master_data rpmh_masters[] = {
 	{"DISPLAY", DISPLAY, PID_DISPLAY},
 };
 
-struct msm_rpmh_master_stats {
-	uint32_t version_id;
-	uint32_t counts;
-	uint64_t last_entered;
-	uint64_t last_exited;
-	uint64_t accumulated_duration;
-};
-
 struct msm_rpmh_profile_unit {
 	uint64_t value;
 	uint64_t valid;
@@ -105,7 +96,10 @@ static ssize_t msm_rpmh_master_stats_print_data(char *prvbuf, ssize_t length,
 				const char *name)
 {
 	uint64_t accumulated_duration = record->accumulated_duration;
+#ifdef CONFIG_MACH_XIAOMI
 	bool is_sleep = false;
+#endif
+
 	/*
 	 * If a master is in sleep when reading the sleep stats from SMEM
 	 * adjust the accumulated sleep duration to show actual sleep time.
@@ -116,18 +110,28 @@ static ssize_t msm_rpmh_master_stats_print_data(char *prvbuf, ssize_t length,
 		accumulated_duration +=
 				(__arch_counter_get_cntvct()
 				- record->last_entered);
+#ifdef CONFIG_MACH_XIAOMI
 		is_sleep = true;
+#endif
 	}
 
 	return scnprintf(prvbuf, length, "%s\n\tVersion:0x%x\n"
 			"\tSleep Count:0x%x\n"
 			"\tSleep Last Entered At:0x%llx\n"
 			"\tSleep Last Exited At:0x%llx\n"
+#ifndef CONFIG_MACH_XIAOMI
+			"\tSleep Accumulated Duration:0x%llx\n\n",
+#else
 			"\tSleep Accumulated Duration:0x%llx\n"
 			"\tSleeping: %d\n\n",
+#endif
 			name, record->version_id, record->counts,
 			record->last_entered, record->last_exited,
+#ifndef CONFIG_MACH_XIAOMI
+			accumulated_duration);
+#else
 			accumulated_duration, is_sleep?1:0);
+#endif
 }
 
 static ssize_t msm_rpmh_master_stats_show(struct kobject *kobj,
@@ -211,6 +215,11 @@ void msm_rpmh_master_stats_update(void)
 }
 EXPORT_SYMBOL(msm_rpmh_master_stats_update);
 
+struct msm_rpmh_master_stats *msm_rpmh_get_apss_data(void)
+{
+	return &apss_master_stats;
+}
+EXPORT_SYMBOL(msm_rpmh_get_apss_data);
 
 static int msm_rpmh_master_stats_probe(struct platform_device *pdev)
 {
@@ -246,11 +255,11 @@ static int msm_rpmh_master_stats_probe(struct platform_device *pdev)
 	if (!rpmh_unit_base) {
 		pr_err("Failed to get rpmh_unit_base or rpm based target\n");
 		rpmh_unit_base = NULL;
+	} else {
+		apss_master_stats.version_id = 0x1;
 	}
 
-	apss_master_stats.version_id = 0x1;
 	platform_set_drvdata(pdev, prvdata);
-
 	return ret;
 
 fail_sysfs:

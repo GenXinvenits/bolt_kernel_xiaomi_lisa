@@ -1993,10 +1993,9 @@ static int snd_soc_instantiate_card(struct snd_soc_card *card)
 	for_each_card_prelinks(card, i, dai_link) {
 		ret = soc_init_dai_link(card, dai_link);
 		if (ret) {
-			dev_err(card->dev, "ASoC: failed to init link %s: %d\n",
-				dai_link->name, ret);
 			mutex_unlock(&client_mutex);
-			return ret;
+			return dev_err_probe(card->dev, ret,
+				"ASoC: failed to init link %s\n", dai_link->name);
 		}
 	}
 	mutex_lock_nested(&card->mutex, SND_SOC_CARD_CLASS_INIT);
@@ -3205,7 +3204,7 @@ int snd_soc_of_parse_audio_routing(struct snd_soc_card *card,
 	if (!routes) {
 		dev_err(card->dev,
 			"ASoC: Could not allocate DAPM route table\n");
-		return -EINVAL;
+		return -ENOMEM;
 	}
 
 	for (i = 0; i < num_routes; i++) {
@@ -3422,7 +3421,7 @@ int snd_soc_get_dai_name(struct of_phandle_args *args,
 	for_each_component(pos) {
 		component_of_node = soc_component_to_node(pos);
 
-		if (component_of_node != args->np)
+		if (component_of_node != args->np || !pos->num_dai)
 			continue;
 
 		ret = snd_soc_component_of_xlate_dai_name(pos, args, dai_name);

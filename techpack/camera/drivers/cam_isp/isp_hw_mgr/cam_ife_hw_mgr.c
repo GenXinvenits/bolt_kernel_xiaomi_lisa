@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 #include <linux/slab.h>
@@ -4053,7 +4052,11 @@ static int cam_ife_mgr_config_hw(void *hw_mgr_priv,
 			(ctx->custom_config & CAM_IFE_CUSTOM_CFG_SW_SYNC_ON)) {
 			rem_jiffies = wait_for_completion_timeout(
 				&ctx->config_done_complete,
-				msecs_to_jiffies(120)); // xiaomi modified to enlarge cfg timeout
+#ifndef CONFIG_MACH_XIAOMI
+				msecs_to_jiffies(60));
+#else
+				msecs_to_jiffies(120));
+#endif
 			if (rem_jiffies == 0) {
 				CAM_ERR(CAM_ISP,
 					"config done completion timeout for req_id=%llu ctx_index %d",
@@ -7991,6 +7994,14 @@ static int cam_ife_hw_mgr_handle_hw_eof(
 	case CAM_ISP_HW_VFE_IN_RDI1:
 	case CAM_ISP_HW_VFE_IN_RDI2:
 	case CAM_ISP_HW_VFE_IN_RDI3:
+		if (!ife_hw_mgr_ctx->is_rdi_only_context)
+			break;
+		if (atomic_read(&ife_hw_mgr_ctx->overflow_pending))
+			break;
+		ife_hw_irq_eof_cb(ife_hw_mgr_ctx->common.cb_priv,
+			CAM_ISP_HW_EVENT_EOF, (void *)&eof_done_event_data);
+		break;
+
 	case CAM_ISP_HW_VFE_IN_PDLIB:
 	case CAM_ISP_HW_VFE_IN_LCR:
 		break;

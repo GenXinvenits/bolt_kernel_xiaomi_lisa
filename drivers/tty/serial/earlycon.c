@@ -231,6 +231,7 @@ static int __init param_setup_earlycon(char *buf)
 #ifdef CONFIG_FASTBOOT_CMD_CTRL_UART
 	is_early_cons_enabled = true;
 #endif
+
 	return err;
 }
 early_param("earlycon", param_setup_earlycon);

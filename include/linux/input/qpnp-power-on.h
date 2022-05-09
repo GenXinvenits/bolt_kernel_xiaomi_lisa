@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2012-2015, 2017-2019, The Linux Foundation.
- * Copyright (C) 2021 XiaoMi, Inc.
  * All rights reserved.
  */
 
@@ -56,8 +55,10 @@ enum pon_restart_reason {
 	PON_RESTART_REASON_DMVERITY_CORRUPTED	= 0x04,
 	PON_RESTART_REASON_DMVERITY_ENFORCE	= 0x05,
 	PON_RESTART_REASON_KEYS_CLEAR		= 0x06,
+#ifdef CONFIG_MACH_XIAOMI
 	PON_RESTART_REASON_NORMAL		= 0x20,
 	PON_RESTART_REASON_PANIC		= 0x21,
+#endif
 };
 
 #if IS_ENABLED(CONFIG_INPUT_QPNP_POWER_ON)

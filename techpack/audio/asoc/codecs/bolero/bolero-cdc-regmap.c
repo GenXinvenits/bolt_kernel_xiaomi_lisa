@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 #include <linux/regmap.h>
@@ -275,7 +274,11 @@ static const struct reg_default bolero_defaults[] = {
 	{ BOLERO_CDC_RX_RX0_RX_PATH_CFG2, 0x8F},
 	{ BOLERO_CDC_RX_RX0_RX_PATH_CFG3, 0x00},
 	{ BOLERO_CDC_RX_RX0_RX_VOL_CTL, 0x00},
+#ifdef CONFIG_MACH_XIAOMI
 	{ BOLERO_CDC_RX_RX0_RX_PATH_MIX_CTL, 0x05},
+#else
+	{ BOLERO_CDC_RX_RX0_RX_PATH_MIX_CTL, 0x04},
+#endif
 	{ BOLERO_CDC_RX_RX0_RX_PATH_MIX_CFG, 0x7E},
 	{ BOLERO_CDC_RX_RX0_RX_VOL_MIX_CTL, 0x00},
 	{ BOLERO_CDC_RX_RX0_RX_PATH_SEC1, 0x08},

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 #define pr_fmt(fmt)	"[sde_rsc_hw:%s:%d]: " fmt, __func__, __LINE__
@@ -280,7 +279,11 @@ static int sde_rsc_mode2_entry_trigger(struct sde_rsc_priv *rsc)
 			rc = 0;
 			break;
 		}
+#ifndef CONFIG_MACH_XIAOMI
+		usleep_range(50, 100);
+#else
 		usleep_range(100, 200);
+#endif
 	}
 
 	return rc;

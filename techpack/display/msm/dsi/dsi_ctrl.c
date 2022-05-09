@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
+ * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/of_device.h>
@@ -267,7 +266,6 @@ static int dsi_ctrl_debugfs_init(struct dsi_ctrl *dsi_ctrl,
 {
 	int rc = 0;
 	struct dentry *dir, *state_file, *reg_dump, *cmd_dma_logs;
-	char dbg_name[DSI_DEBUG_NAME_LEN];
 
 	if (!dsi_ctrl || !parent) {
 		DSI_CTRL_ERR(dsi_ctrl, "Invalid params\n");
@@ -330,10 +328,6 @@ static int dsi_ctrl_debugfs_init(struct dsi_ctrl *dsi_ctrl,
 
 	dsi_ctrl->debugfs_root = dir;
 
-	snprintf(dbg_name, DSI_DEBUG_NAME_LEN, "dsi%d_ctrl",
-						dsi_ctrl->cell_index);
-	sde_dbg_reg_register_base(dbg_name, dsi_ctrl->hw.base,
-				msm_iomap_size(dsi_ctrl->pdev, "dsi_ctrl"));
 error_remove_dir:
 	debugfs_remove(dir);
 error:
@@ -346,16 +340,8 @@ static int dsi_ctrl_debugfs_deinit(struct dsi_ctrl *dsi_ctrl)
 	return 0;
 }
 #else
-static int dsi_ctrl_debugfs_init(struct dsi_ctrl *dsi_ctrl,
-				 struct dentry *parent)
+static int dsi_ctrl_debugfs_init(struct dsi_ctrl *dsi_ctrl, struct dentry *parent)
 {
-	char dbg_name[DSI_DEBUG_NAME_LEN];
-
-	snprintf(dbg_name, DSI_DEBUG_NAME_LEN, "dsi%d_ctrl",
-						dsi_ctrl->cell_index);
-	sde_dbg_reg_register_base(dbg_name,
-				dsi_ctrl->hw.base,
-				msm_iomap_size(dsi_ctrl->pdev, "dsi_ctrl"));
 	return 0;
 }
 static int dsi_ctrl_debugfs_deinit(struct dsi_ctrl *dsi_ctrl)
@@ -404,13 +390,6 @@ static void dsi_ctrl_dma_cmd_wait_for_done(struct work_struct *work)
 	dsi_hw_ops = dsi_ctrl->hw.ops;
 	SDE_EVT32(dsi_ctrl->cell_index, SDE_EVTLOG_FUNC_ENTRY);
 
-	/*
-	 * This atomic state will be set if ISR has been triggered,
-	 * so the wait is not needed.
-	 */
-	if (atomic_read(&dsi_ctrl->dma_irq_trig))
-		goto done;
-
 	ret = wait_for_completion_timeout(
 			&dsi_ctrl->irq_info.cmd_dma_done,
 			msecs_to_jiffies(DSI_CTRL_TX_TO_MS));
@@ -430,8 +409,8 @@ static void dsi_ctrl_dma_cmd_wait_for_done(struct work_struct *work)
 					DSI_SINT_CMD_MODE_DMA_DONE);
 	}
 
-done:
 	dsi_ctrl->dma_wait_queued = false;
+	SDE_EVT32(dsi_ctrl->cell_index, SDE_EVTLOG_FUNC_EXIT);
 }
 
 static int dsi_ctrl_check_state(struct dsi_ctrl *dsi_ctrl,
@@ -671,34 +650,34 @@ static int dsi_ctrl_clocks_deinit(struct dsi_ctrl *ctrl)
 	struct dsi_link_hs_clk_info *hs_link = &ctrl->clk_info.hs_link_clks;
 	struct dsi_clk_link_set *rcg = &ctrl->clk_info.rcg_clks;
 
-	if (core->mdp_core_clk)
+	if (!IS_ERR_OR_NULL(core->mdp_core_clk))
 		devm_clk_put(&ctrl->pdev->dev, core->mdp_core_clk);
-	if (core->iface_clk)
+	if (!IS_ERR_OR_NULL(core->iface_clk))
 		devm_clk_put(&ctrl->pdev->dev, core->iface_clk);
-	if (core->core_mmss_clk)
+	if (!IS_ERR_OR_NULL(core->core_mmss_clk))
 		devm_clk_put(&ctrl->pdev->dev, core->core_mmss_clk);
-	if (core->bus_clk)
+	if (!IS_ERR_OR_NULL(core->bus_clk))
 		devm_clk_put(&ctrl->pdev->dev, core->bus_clk);
-	if (core->mnoc_clk)
+	if (!IS_ERR_OR_NULL(core->mnoc_clk))
 		devm_clk_put(&ctrl->pdev->dev, core->mnoc_clk);
 
 	memset(core, 0x0, sizeof(*core));
 
-	if (hs_link->byte_clk)
+	if (!IS_ERR_OR_NULL(hs_link->byte_clk))
 		devm_clk_put(&ctrl->pdev->dev, hs_link->byte_clk);
-	if (hs_link->pixel_clk)
+	if (!IS_ERR_OR_NULL(hs_link->pixel_clk))
 		devm_clk_put(&ctrl->pdev->dev, hs_link->pixel_clk);
-	if (lp_link->esc_clk)
+	if (!IS_ERR_OR_NULL(lp_link->esc_clk))
 		devm_clk_put(&ctrl->pdev->dev, lp_link->esc_clk);
-	if (hs_link->byte_intf_clk)
+	if (!IS_ERR_OR_NULL(hs_link->byte_intf_clk))
 		devm_clk_put(&ctrl->pdev->dev, hs_link->byte_intf_clk);
 
 	memset(hs_link, 0x0, sizeof(*hs_link));
 	memset(lp_link, 0x0, sizeof(*lp_link));
 
-	if (rcg->byte_clk)
+	if (!IS_ERR_OR_NULL(rcg->byte_clk))
 		devm_clk_put(&ctrl->pdev->dev, rcg->byte_clk);
-	if (rcg->pixel_clk)
+	if (!IS_ERR_OR_NULL(rcg->pixel_clk))
 		devm_clk_put(&ctrl->pdev->dev, rcg->pixel_clk);
 
 	memset(rcg, 0x0, sizeof(*rcg));
@@ -947,6 +926,9 @@ int dsi_ctrl_pixel_format_to_bpp(enum dsi_pixel_format dst_format)
 	case DSI_PIXEL_FORMAT_RGB888:
 		bpp = 24;
 		break;
+	case DSI_PIXEL_FORMAT_RGB101010:
+		bpp = 30;
+		break;
 	default:
 		bpp = 24;
 		break;
@@ -1108,31 +1090,21 @@ error:
 	return rc;
 }
 
-static int dsi_ctrl_copy_and_pad_cmd(struct dsi_ctrl *dsi_ctrl,
-				     const struct mipi_dsi_packet *packet,
-				     u8 **buffer,
-				     u32 *size)
+static int dsi_ctrl_copy_and_pad_cmd(const struct mipi_dsi_packet *packet,
+				     u8 *buf, size_t len)
 {
 	int rc = 0;
-	u8 *buf = NULL;
-	u32 len, i;
 	u8 cmd_type = 0;
 
-	len = packet->size;
-	len += 0x3; len &= ~0x03; /* Align to 32 bits */
+	if (unlikely(len < packet->size))
+		return -EINVAL;
 
-	buf = devm_kzalloc(&dsi_ctrl->pdev->dev, len * sizeof(u8), GFP_KERNEL);
-	if (!buf)
-		return -ENOMEM;
-
-	for (i = 0; i < len; i++) {
-		if (i >= packet->size)
-			buf[i] = 0xFF;
-		else if (i < sizeof(packet->header))
-			buf[i] = packet->header[i];
-		else
-			buf[i] = packet->payload[i - sizeof(packet->header)];
-	}
+	memcpy(buf, packet->header, sizeof(packet->header));
+	if (packet->payload_length)
+		memcpy(buf + sizeof(packet->header), packet->payload,
+		       packet->payload_length);
+	if (packet->size < len)
+		memset(buf + packet->size, 0xFF, len - packet->size);
 
 	if (packet->payload_length > 0)
 		buf[3] |= BIT(6);
@@ -1149,9 +1121,6 @@ static int dsi_ctrl_copy_and_pad_cmd(struct dsi_ctrl *dsi_ctrl,
 			(cmd_type == MIPI_DSI_GENERIC_READ_REQUEST_1_PARAM) ||
 			(cmd_type == MIPI_DSI_GENERIC_READ_REQUEST_2_PARAM))
 		buf[3] |= BIT(5);
-
-	*buffer = buf;
-	*size = len;
 
 	return rc;
 }
@@ -1547,9 +1516,8 @@ static int dsi_message_tx(struct dsi_ctrl *dsi_ctrl,
 	struct mipi_dsi_packet packet;
 	struct dsi_ctrl_cmd_dma_fifo_info cmd;
 	struct dsi_ctrl_cmd_dma_info cmd_mem;
-	u32 length = 0;
+	u32 length;
 	u8 *buffer = NULL;
-	u32 cnt = 0;
 	u8 *cmdbuf;
 
 	/* Select the tx mode to transfer the command */
@@ -1566,12 +1534,13 @@ static int dsi_message_tx(struct dsi_ctrl *dsi_ctrl,
 
 	dsi_ctrl_validate_msg_flags(dsi_ctrl, msg, flags);
 
-	SDE_EVT32(dsi_ctrl->cell_index, SDE_EVTLOG_FUNC_ENTRY, flags);
+	SDE_EVT32(dsi_ctrl->cell_index, SDE_EVTLOG_FUNC_ENTRY, *flags, dsi_ctrl->cmd_len);
 
 	if (dsi_ctrl->dma_wait_queued)
 		dsi_ctrl_flush_cmd_dma_queue(dsi_ctrl);
 
-	if (!(*flags & DSI_CTRL_CMD_BROADCAST_MASTER))
+	if ((*flags & DSI_CTRL_CMD_BROADCAST) &&
+			(!(*flags & DSI_CTRL_CMD_BROADCAST_MASTER)))
 		dsi_ctrl_clear_slave_dma_status(dsi_ctrl, *flags);
 
 	if (*flags & DSI_CTRL_CMD_NON_EMBEDDED_MODE) {
@@ -1601,14 +1570,7 @@ static int dsi_message_tx(struct dsi_ctrl *dsi_ctrl,
 		goto error;
 	}
 
-	rc = dsi_ctrl_copy_and_pad_cmd(dsi_ctrl,
-			&packet,
-			&buffer,
-			&length);
-	if (rc) {
-		DSI_CTRL_ERR(dsi_ctrl, "failed to copy message, rc=%d\n", rc);
-		goto error;
-	}
+	length = ALIGN(packet.size, 4);
 
 	/*
 	 * In case of broadcast CMD length cannot be greater than 512 bytes
@@ -1627,9 +1589,19 @@ static int dsi_message_tx(struct dsi_ctrl *dsi_ctrl,
 
 	if ((msg->flags & MIPI_DSI_MSG_LASTCOMMAND) ||
 			(*flags & DSI_CTRL_CMD_LAST_COMMAND))
-		buffer[3] |= BIT(7);//set the last cmd bit in header.
+		packet.header[3] |= BIT(7);//set the last cmd bit in header.
 
 	if (*flags & DSI_CTRL_CMD_FETCH_MEMORY) {
+		msm_gem_sync(dsi_ctrl->tx_cmd_buf);
+		cmdbuf = dsi_ctrl->vaddr + dsi_ctrl->cmd_len;
+
+		rc = dsi_ctrl_copy_and_pad_cmd(&packet, cmdbuf, length);
+		if (rc) {
+			DSI_CTRL_ERR(dsi_ctrl, "failed to copy message, rc=%d\n",
+					rc);
+			goto error;
+		}
+
 		/* Embedded mode config is selected */
 		cmd_mem.offset = dsi_ctrl->cmd_buffer_iova;
 		cmd_mem.en_broadcast = (*flags & DSI_CTRL_CMD_BROADCAST) ?
@@ -1638,12 +1610,6 @@ static int dsi_message_tx(struct dsi_ctrl *dsi_ctrl,
 			true : false;
 		cmd_mem.use_lpm = (msg->flags & MIPI_DSI_MSG_USE_LPM) ?
 			true : false;
-
-		cmdbuf = (u8 *)(dsi_ctrl->vaddr);
-
-		msm_gem_sync(dsi_ctrl->tx_cmd_buf);
-		for (cnt = 0; cnt < length; cnt++)
-			cmdbuf[dsi_ctrl->cmd_len + cnt] = buffer[cnt];
 
 		dsi_ctrl->cmd_len += length;
 
@@ -1656,6 +1622,20 @@ static int dsi_message_tx(struct dsi_ctrl *dsi_ctrl,
 		}
 
 	} else if (*flags & DSI_CTRL_CMD_FIFO_STORE) {
+		buffer = devm_kzalloc(&dsi_ctrl->pdev->dev, length,
+					   GFP_KERNEL);
+		if (!buffer) {
+			rc = -ENOMEM;
+			goto error;
+		}
+
+		rc = dsi_ctrl_copy_and_pad_cmd(&packet, buffer, length);
+		if (rc) {
+			DSI_CTRL_ERR(dsi_ctrl, "failed to copy message, rc=%d\n",
+					rc);
+			goto error;
+		}
+
 		cmd.command =  (u32 *)buffer;
 		cmd.size = length;
 		cmd.en_broadcast = (*flags & DSI_CTRL_CMD_BROADCAST) ?
@@ -1759,7 +1739,7 @@ static int dsi_message_rx(struct dsi_ctrl *dsi_ctrl,
 			  const struct mipi_dsi_msg *msg,
 			  u32 *flags)
 {
-	int rc = 0, i = 0;
+	int rc = 0;
 	u32 rd_pkt_size, total_read_len, hw_read_cnt;
 	u32 current_read_len = 0, total_bytes_read = 0;
 	bool short_resp = false;
@@ -1767,8 +1747,10 @@ static int dsi_message_rx(struct dsi_ctrl *dsi_ctrl,
 	u32 dlen, diff, rlen;
 	unsigned char *buff = NULL;
 	char cmd;
+#ifdef CONFIG_MACH_XIAOMI
 	u32 buffer_sz = 0, header_offset = 0;
 	u8 *head = NULL;
+#endif
 
 	if (!msg) {
 		DSI_CTRL_ERR(dsi_ctrl, "Invalid msg\n");
@@ -1781,12 +1763,13 @@ static int dsi_message_rx(struct dsi_ctrl *dsi_ctrl,
 		short_resp = true;
 		rd_pkt_size = msg->rx_len;
 		total_read_len = 4;
-
+#ifdef CONFIG_MACH_XIAOMI
 		/*
 		 * buffer size: header + data
 		 * No 32 bits alignment issue, thus offset is 0
 		 */
 		buffer_sz = 4;
+#endif
 	} else {
 		short_resp = false;
 		current_read_len = 10;
@@ -1796,7 +1779,7 @@ static int dsi_message_rx(struct dsi_ctrl *dsi_ctrl,
 			rd_pkt_size = current_read_len;
 
 		total_read_len = current_read_len + 6;
-
+#ifdef CONFIG_MACH_XIAOMI
 		/*
 		 * buffer size: header + data + footer, rounded up to 4 bytes
 		 * Out of bound can occurs is rx_len is not aligned to size 4.
@@ -1807,20 +1790,18 @@ static int dsi_message_rx(struct dsi_ctrl *dsi_ctrl,
 		buffer_sz = (((4 + msg->rx_len + 2) + 3) >> 2) << 2;
 		if (buffer_sz < 16)
 			buffer_sz = 16;
+#endif
 	}
-
-	pr_debug("short_resp %d, msg->rx_len %d, rd_pkt_size %u\n",
-			short_resp, (int)msg->rx_len, rd_pkt_size);
-
-	pr_debug("total_read_len %u, buffer_sz %u\n",
-			total_read_len, buffer_sz);
-
+#ifndef CONFIG_MACH_XIAOMI
+	buff = msg->rx_buf;
+#else
 	buff = kzalloc(buffer_sz, GFP_KERNEL);
 	if (!buff) {
 		rc = -ENOMEM;
 		goto error;
 	}
 	head = buff;
+#endif
 
 	while (!read_done) {
 		rc = dsi_set_max_return_size(dsi_ctrl, msg, rd_pkt_size);
@@ -1878,21 +1859,29 @@ static int dsi_message_rx(struct dsi_ctrl *dsi_ctrl,
 		}
 	}
 
+#ifdef CONFIG_MACH_XIAOMI
 	buff = head;
-	pr_debug("==data from hw==\n");
-	for (i = 0; i < buffer_sz; i++)
-		pr_debug("buffer[%d] = %02x\n", i, buff[i]);
+#endif
 
 	if (hw_read_cnt < 16 && !short_resp)
+#ifndef CONFIG_MACH_XIAOMI
+		buff = msg->rx_buf + (16 - hw_read_cnt);
+#else
 		header_offset = (16 - hw_read_cnt);
+#endif
 	else
+#ifndef CONFIG_MACH_XIAOMI
+		buff = msg->rx_buf;
+#else
 		header_offset = 0;
-
-	pr_debug("hw_read_cnt %d, header_offset %d\n",
-			hw_read_cnt, header_offset);
+#endif
 
 	/* parse the data read from panel */
+#ifndef CONFIG_MACH_XIAOMI
+	cmd = buff[0];
+#else
 	cmd = buff[header_offset];
+#endif
 	switch (cmd) {
 	case MIPI_DSI_RX_ACKNOWLEDGE_AND_ERROR_REPORT:
 		DSI_CTRL_ERR(dsi_ctrl, "Rx ACK_ERROR 0x%x\n", cmd);
@@ -1900,30 +1889,37 @@ static int dsi_message_rx(struct dsi_ctrl *dsi_ctrl,
 		break;
 	case MIPI_DSI_RX_GENERIC_SHORT_READ_RESPONSE_1BYTE:
 	case MIPI_DSI_RX_DCS_SHORT_READ_RESPONSE_1BYTE:
-		pr_debug("short 1 byte read response\n");
+#ifndef CONFIG_MACH_XIAOMI
+		rc = dsi_parse_short_read1_resp(msg, buff);
+#else
 		rc = dsi_parse_short_read1_resp(msg, &buff[header_offset]);
+#endif
 		break;
 	case MIPI_DSI_RX_GENERIC_SHORT_READ_RESPONSE_2BYTE:
 	case MIPI_DSI_RX_DCS_SHORT_READ_RESPONSE_2BYTE:
-		pr_debug("short 2 byte read response\n");
+#ifndef CONFIG_MACH_XIAOMI
+		rc = dsi_parse_short_read2_resp(msg, buff);
+#else
 		rc = dsi_parse_short_read2_resp(msg, &buff[header_offset]);
+#endif
 		break;
 	case MIPI_DSI_RX_GENERIC_LONG_READ_RESPONSE:
 	case MIPI_DSI_RX_DCS_LONG_READ_RESPONSE:
-		pr_debug("long read response\n");
+#ifndef CONFIG_MACH_XIAOMI
+		rc = dsi_parse_long_read_resp(msg, buff);
+#else
 		rc = dsi_parse_long_read_resp(msg, &buff[header_offset]);
+#endif
 		break;
 	default:
 		DSI_CTRL_WARN(dsi_ctrl, "Invalid response: 0x%x\n", cmd);
 		rc = 0;
 	}
 
-	pr_debug("==data to client==\n");
-	for (i = 0; i < msg->rx_len; i++)
-		pr_debug("rx_buf[%d] = %02x\n", i, ((u8 *)msg->rx_buf)[i]);
-
 error:
+#ifdef CONFIG_MACH_XIAOMI
 	kfree(buff);
+#endif
 	return rc;
 }
 
@@ -2348,7 +2344,7 @@ struct dsi_ctrl *dsi_ctrl_get(struct device_node *of_node)
 	mutex_unlock(&dsi_ctrl_list_lock);
 
 	if (!ctrl) {
-		DSI_CTRL_ERR(ctrl, "Device with of node not found rc=%d\n",
+		DSI_CTRL_DEBUG(ctrl, "Device with of node not found rc=%d\n",
 				-EPROBE_DEFER);
 		ctrl = ERR_PTR(-EPROBE_DEFER);
 		return ctrl;
@@ -2398,6 +2394,7 @@ void dsi_ctrl_put(struct dsi_ctrl *dsi_ctrl)
  */
 int dsi_ctrl_drv_init(struct dsi_ctrl *dsi_ctrl, struct dentry *parent)
 {
+	char dbg_name[DSI_DEBUG_NAME_LEN];
 	int rc = 0;
 
 	if (!dsi_ctrl) {
@@ -2418,6 +2415,10 @@ int dsi_ctrl_drv_init(struct dsi_ctrl *dsi_ctrl, struct dentry *parent)
 		DSI_CTRL_ERR(dsi_ctrl, "failed to init debug fs, rc=%d\n", rc);
 		goto error;
 	}
+
+	snprintf(dbg_name, DSI_DEBUG_NAME_LEN, "dsi%d_ctrl", dsi_ctrl->cell_index);
+	sde_dbg_reg_register_base(dbg_name, dsi_ctrl->hw.base,
+			msm_iomap_size(dsi_ctrl->pdev, "dsi_ctrl"));
 
 error:
 	mutex_unlock(&dsi_ctrl->ctrl_lock);
@@ -3007,7 +3008,10 @@ void dsi_ctrl_enable_status_interrupt(struct dsi_ctrl *dsi_ctrl,
 			intr_idx >= DSI_STATUS_INTERRUPT_COUNT)
 		return;
 
-	SDE_EVT32(dsi_ctrl->cell_index, SDE_EVTLOG_FUNC_ENTRY, intr_idx);
+	SDE_EVT32(dsi_ctrl->cell_index, intr_idx,
+		dsi_ctrl->irq_info.irq_num, dsi_ctrl->irq_info.irq_stat_mask,
+		dsi_ctrl->irq_info.irq_stat_refcount[intr_idx]);
+
 	spin_lock_irqsave(&dsi_ctrl->irq_info.irq_lock, flags);
 
 	if (dsi_ctrl->irq_info.irq_stat_refcount[intr_idx] == 0) {
@@ -3040,7 +3044,10 @@ void dsi_ctrl_disable_status_interrupt(struct dsi_ctrl *dsi_ctrl,
 	if (!dsi_ctrl || intr_idx >= DSI_STATUS_INTERRUPT_COUNT)
 		return;
 
-	SDE_EVT32_IRQ(dsi_ctrl->cell_index, SDE_EVTLOG_FUNC_ENTRY, intr_idx);
+	SDE_EVT32_IRQ(dsi_ctrl->cell_index, intr_idx,
+		dsi_ctrl->irq_info.irq_num, dsi_ctrl->irq_info.irq_stat_mask,
+		dsi_ctrl->irq_info.irq_stat_refcount[intr_idx]);
+
 	spin_lock_irqsave(&dsi_ctrl->irq_info.irq_lock, flags);
 
 	if (dsi_ctrl->irq_info.irq_stat_refcount[intr_idx])

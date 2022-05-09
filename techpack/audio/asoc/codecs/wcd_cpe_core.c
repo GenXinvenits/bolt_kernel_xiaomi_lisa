@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* Copyright (c) 2014-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2021, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -756,7 +756,7 @@ static unsigned int wcd_cpe_state_poll(struct snd_info_entry *entry,
  */
 static bool wcd_cpe_is_online_state(void *core_handle)
 {
-	struct wcd_cpe_core *core = core_handle;
+	struct wcd_cpe_core *core = (struct wcd_cpe_core *)core_handle;
 
 	if (core_handle) {
 		return !core->ssr_entry.offline;
@@ -1005,10 +1005,9 @@ static void wcd_cpe_ssr_work(struct work_struct *work)
 	}
 
 	/* Obtain pm request up in case of suspend mode */
-	pm_qos_add_request(&core->pm_qos_req,
-			   PM_QOS_CPU_DMA_LATENCY,
+	cpu_latency_qos_add_request(&core->pm_qos_req,
 			   PM_QOS_DEFAULT_VALUE);
-	pm_qos_update_request(&core->pm_qos_req,
+	cpu_latency_qos_update_request(&core->pm_qos_req,
 			msm_cpuidle_get_deep_idle_latency());
 
 	dev_dbg(core->dev,
@@ -1085,9 +1084,9 @@ static void wcd_cpe_ssr_work(struct work_struct *work)
 
 err_ret:
 	/* remove after default pm qos */
-	pm_qos_update_request(&core->pm_qos_req,
+	cpu_latency_qos_update_request(&core->pm_qos_req,
 			      PM_QOS_DEFAULT_VALUE);
-	pm_qos_remove_request(&core->pm_qos_req);
+	cpu_latency_qos_remove_request(&core->pm_qos_req);
 }
 
 /*
@@ -1098,7 +1097,7 @@ err_ret:
 int wcd_cpe_ssr_event(void *core_handle,
 		      enum wcd_cpe_ssr_state_event event)
 {
-	struct wcd_cpe_core *core = core_handle;
+	struct wcd_cpe_core *core = (struct wcd_cpe_core *)core_handle;
 
 	if (!core) {
 		pr_err("%s: Invalid handle to core\n",
@@ -2169,7 +2168,7 @@ static int wcd_cpe_cmi_send_lsm_msg(
 			void *message)
 {
 	int ret = 0;
-	struct cmi_hdr *hdr = message;
+	struct cmi_hdr *hdr = (struct cmi_hdr *)message;
 
 	pr_debug("%s: sending message with opcode 0x%x\n",
 		 __func__, hdr->opcode);
@@ -2413,7 +2412,7 @@ static int wcd_cpe_cmd_lsm_open_tx(void *core_handle,
 		u16 app_id, u16 sample_rate)
 {
 	struct cpe_lsm_cmd_open_tx cmd_open_tx;
-	struct wcd_cpe_core *core = core_handle;
+	struct wcd_cpe_core *core = (struct wcd_cpe_core *)core_handle;
 	int ret = 0;
 
 	ret = wcd_cpe_is_valid_lsm_session(core, session,
@@ -2462,7 +2461,7 @@ static int wcd_cpe_cmd_lsm_close_tx(void *core_handle,
 			struct cpe_lsm_session *session)
 {
 	struct cmi_hdr cmd_close_tx;
-	struct wcd_cpe_core *core = core_handle;
+	struct wcd_cpe_core *core = (struct wcd_cpe_core *)core_handle;
 	int ret = 0;
 
 	ret = wcd_cpe_is_valid_lsm_session(core, session,
@@ -2503,7 +2502,7 @@ static int wcd_cpe_cmd_lsm_shmem_alloc(void *core_handle,
 			u32 size)
 {
 	struct cpe_cmd_shmem_alloc cmd_shmem_alloc;
-	struct wcd_cpe_core *core = core_handle;
+	struct wcd_cpe_core *core = (struct wcd_cpe_core *)core_handle;
 	int ret = 0;
 
 	ret = wcd_cpe_is_valid_lsm_session(core, session,
@@ -2542,7 +2541,7 @@ static int wcd_cpe_cmd_lsm_shmem_dealloc(void *core_handle,
 		struct cpe_lsm_session *session)
 {
 	struct cpe_cmd_shmem_dealloc cmd_dealloc;
-	struct wcd_cpe_core *core = core_handle;
+	struct wcd_cpe_core *core = (struct wcd_cpe_core *)core_handle;
 	int ret = 0;
 
 	ret = wcd_cpe_is_valid_lsm_session(core, session,
@@ -3021,7 +3020,7 @@ static int wcd_cpe_set_one_param(void *core_handle,
 	struct cpe_lsm_session *session, struct lsm_params_info *p_info,
 	void *data, uint32_t param_type)
 {
-	struct wcd_cpe_core *core = core_handle;
+	struct wcd_cpe_core *core = (struct wcd_cpe_core *)core_handle;
 	int rc = 0;
 	struct cpe_lsm_ids ids;
 
@@ -3111,7 +3110,7 @@ static int wcd_cpe_lsm_set_data(void *core_handle,
 				enum lsm_detection_mode detect_mode,
 				bool detect_failure)
 {
-	struct wcd_cpe_core *core = core_handle;
+	struct wcd_cpe_core *core = (struct wcd_cpe_core *)core_handle;
 	struct cpe_lsm_ids ids;
 	int ret = 0;
 
@@ -3160,7 +3159,7 @@ static int wcd_cpe_lsm_reg_snd_model(void *core_handle,
 {
 	int ret = 0;
 	struct cmi_obm_msg obm_msg;
-	struct wcd_cpe_core *core = core_handle;
+	struct wcd_cpe_core *core = (struct wcd_cpe_core *)core_handle;
 
 	ret = wcd_cpe_is_valid_lsm_session(core, session,
 					   __func__);
@@ -3213,7 +3212,7 @@ static int wcd_cpe_lsm_dereg_snd_model(void *core_handle,
 				struct cpe_lsm_session *session)
 {
 	struct cmi_hdr cmd_dereg_snd_model;
-	struct wcd_cpe_core *core = core_handle;
+	struct wcd_cpe_core *core = (struct wcd_cpe_core *)core_handle;
 	int ret = 0;
 
 	ret = wcd_cpe_is_valid_lsm_session(core, session,
@@ -3248,7 +3247,7 @@ end_ret:
 static int wcd_cpe_lsm_get_afe_out_port_id(void *core_handle,
 					   struct cpe_lsm_session *session)
 {
-	struct wcd_cpe_core *core = core_handle;
+	struct wcd_cpe_core *core = (struct wcd_cpe_core *)core_handle;
 	struct snd_soc_component *component;
 	int rc = 0;
 
@@ -3302,7 +3301,7 @@ static int wcd_cpe_cmd_lsm_start(void *core_handle,
 			struct cpe_lsm_session *session)
 {
 	struct cmi_hdr cmd_lsm_start;
-	struct wcd_cpe_core *core = core_handle;
+	struct wcd_cpe_core *core = (struct wcd_cpe_core *)core_handle;
 	int ret = 0;
 
 	ret = wcd_cpe_is_valid_lsm_session(core, session,
@@ -3337,7 +3336,7 @@ static int wcd_cpe_cmd_lsm_stop(void *core_handle,
 		struct cpe_lsm_session *session)
 {
 	struct cmi_hdr cmd_lsm_stop;
-	struct wcd_cpe_core *core = core_handle;
+	struct wcd_cpe_core *core = (struct wcd_cpe_core *)core_handle;
 	int ret = 0;
 
 	ret = wcd_cpe_is_valid_lsm_session(core, session,
@@ -3376,7 +3375,7 @@ static struct cpe_lsm_session *wcd_cpe_alloc_lsm_session(
 {
 	struct cpe_lsm_session *session;
 	int i, session_id = -1;
-	struct wcd_cpe_core *core = core_handle;
+	struct wcd_cpe_core *core = (struct wcd_cpe_core *)core_handle;
 	bool afe_register_service = false;
 	int ret = 0;
 
@@ -3537,7 +3536,7 @@ static int wcd_cpe_lsm_lab_control(
 		struct cpe_lsm_session *session,
 		bool enable)
 {
-	struct wcd_cpe_core *core = core_handle;
+	struct wcd_cpe_core *core = (struct wcd_cpe_core *)core_handle;
 	int ret = 0, pld_size = CPE_PARAM_SIZE_LSM_LAB_CONTROL;
 	struct cpe_lsm_control_lab cpe_lab_enable;
 	struct cpe_lsm_lab_enable *lab_enable = &cpe_lab_enable.lab_enable;
@@ -3620,7 +3619,7 @@ static int wcd_cpe_lsm_eob(
 static int wcd_cpe_dealloc_lsm_session(void *core_handle,
 			struct cpe_lsm_session *session)
 {
-	struct wcd_cpe_core *core = core_handle;
+	struct wcd_cpe_core *core = (struct wcd_cpe_core *)core_handle;
 	int ret = 0;
 
 	WCD_CPE_GRAB_LOCK(&core->session_lock, "session_lock");
@@ -3667,7 +3666,7 @@ static int wcd_cpe_lab_ch_setup(void *core_handle,
 		struct cpe_lsm_session *session,
 		enum wcd_cpe_event event)
 {
-	struct wcd_cpe_core *core = core_handle;
+	struct wcd_cpe_core *core = (struct wcd_cpe_core *)core_handle;
 	struct snd_soc_component *component;
 	int rc = 0;
 	u8 cpe_intr_bits;
@@ -3791,7 +3790,7 @@ static int wcd_cpe_lsm_set_fmt_cfg(void *core_handle,
 {
 	int ret;
 	struct cpe_lsm_output_format_cfg out_fmt_cfg;
-	struct wcd_cpe_core *core = core_handle;
+	struct wcd_cpe_core *core = (struct wcd_cpe_core *)core_handle;
 
 	ret = wcd_cpe_is_valid_lsm_session(core, session, __func__);
 	if (ret)
@@ -3835,7 +3834,7 @@ static int wcd_cpe_lsm_set_media_fmt_params(void *core_handle,
 {
 	struct cpe_lsm_media_fmt_param media_fmt;
 	struct cmi_hdr *msg_hdr = &media_fmt.hdr;
-	struct wcd_cpe_core *core = core_handle;
+	struct wcd_cpe_core *core = (struct wcd_cpe_core *)core_handle;
 	struct cpe_param_data *param_d = &media_fmt.param;
 	struct cpe_lsm_ids ids;
 	int ret;
@@ -3878,7 +3877,7 @@ static int wcd_cpe_lsm_set_port(void *core_handle,
 	u32 port_id;
 	int ret;
 	struct cpe_lsm_ids ids;
-	struct wcd_cpe_core *core = core_handle;
+	struct wcd_cpe_core *core = (struct wcd_cpe_core *)core_handle;
 
 	ret = wcd_cpe_is_valid_lsm_session(core, session, __func__);
 	if (ret)
@@ -3972,7 +3971,7 @@ static int wcd_cpe_cmi_send_afe_msg(
 	void *message)
 {
 	int ret = 0;
-	struct cmi_hdr *hdr = message;
+	struct cmi_hdr *hdr = (struct cmi_hdr *)message;
 
 	pr_debug("%s: sending message with opcode 0x%x\n",
 		__func__, hdr->opcode);
@@ -4116,7 +4115,7 @@ static int wcd_cpe_send_afe_cal(void *core_handle,
 {
 
 	struct cal_block_data *afe_cal = NULL;
-	struct wcd_cpe_core *core = core_handle;
+	struct wcd_cpe_core *core = (struct wcd_cpe_core *)core_handle;
 	struct cmi_obm_msg obm_msg;
 	void *inb_msg = NULL;
 	void *msg;
@@ -4270,7 +4269,7 @@ static int wcd_cpe_afe_svc_cmd_mode(void *core_handle,
 				    u8 mode)
 {
 	struct cpe_afe_svc_cmd_mode afe_mode;
-	struct wcd_cpe_core *core = core_handle;
+	struct wcd_cpe_core *core = (struct wcd_cpe_core *)core_handle;
 	struct wcd_cmi_afe_port_data *afe_port_d;
 	int ret;
 
@@ -4309,7 +4308,7 @@ static int wcd_cpe_afe_cmd_port_cfg(void *core_handle,
 		struct wcd_cpe_afe_port_cfg *afe_cfg)
 {
 	struct cpe_afe_cmd_port_cfg port_cfg_cmd;
-	struct wcd_cpe_core *core = core_handle;
+	struct wcd_cpe_core *core = (struct wcd_cpe_core *)core_handle;
 	struct wcd_cmi_afe_port_data *afe_port_d;
 	int ret;
 
@@ -4364,7 +4363,7 @@ static int wcd_cpe_afe_set_params(void *core_handle,
 	struct cpe_afe_params afe_params;
 	struct cpe_afe_hw_mad_ctrl *hw_mad_ctrl = &afe_params.hw_mad_ctrl;
 	struct cpe_afe_port_cfg *port_cfg = &afe_params.port_cfg;
-	struct wcd_cpe_core *core = core_handle;
+	struct wcd_cpe_core *core = (struct wcd_cpe_core *)core_handle;
 	struct wcd_cmi_afe_port_data *afe_port_d;
 	int ret = 0, pld_size = 0;
 
@@ -4434,7 +4433,7 @@ static int wcd_cpe_afe_port_start(void *core_handle,
 {
 
 	struct cmi_hdr hdr;
-	struct wcd_cpe_core *core = core_handle;
+	struct wcd_cpe_core *core = (struct wcd_cpe_core *)core_handle;
 	struct wcd_cmi_afe_port_data *afe_port_d;
 	int ret = 0;
 
@@ -4470,7 +4469,7 @@ static int wcd_cpe_afe_port_stop(void *core_handle,
 	struct wcd_cpe_afe_port_cfg *port_cfg)
 {
 	struct cmi_hdr hdr;
-	struct wcd_cpe_core *core = core_handle;
+	struct wcd_cpe_core *core = (struct wcd_cpe_core *)core_handle;
 	struct wcd_cmi_afe_port_data *afe_port_d;
 	int ret = 0;
 
@@ -4507,7 +4506,7 @@ static int wcd_cpe_afe_port_suspend(void *core_handle,
 		struct wcd_cpe_afe_port_cfg *port_cfg)
 {
 	struct cmi_hdr hdr;
-	struct wcd_cpe_core *core = core_handle;
+	struct wcd_cpe_core *core = (struct wcd_cpe_core *)core_handle;
 	struct wcd_cmi_afe_port_data *afe_port_d;
 	int ret = 0;
 
@@ -4543,7 +4542,7 @@ static int wcd_cpe_afe_port_resume(void *core_handle,
 		struct wcd_cpe_afe_port_cfg *port_cfg)
 {
 	struct cmi_hdr hdr;
-	struct wcd_cpe_core *core = core_handle;
+	struct wcd_cpe_core *core = (struct wcd_cpe_core *)core_handle;
 	struct wcd_cmi_afe_port_data *afe_port_d;
 	int ret = 0;
 

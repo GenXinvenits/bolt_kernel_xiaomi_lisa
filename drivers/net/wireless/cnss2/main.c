@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* Copyright (c) 2016-2021, The Linux Foundation. All rights reserved. */
-/* Copyright (C) 2021 XiaoMi, Inc. */
 
 #include <linux/delay.h>
 #include <linux/jiffies.h>
@@ -20,7 +19,6 @@
 #include "bus.h"
 #include "debug.h"
 #include "genl.h"
-#include "pci.h"
 
 #define CNSS_DUMP_FORMAT_VER		0x11
 #define CNSS_DUMP_FORMAT_VER_V2		0x22
@@ -557,7 +555,7 @@ static int cnss_setup_dms_mac(struct cnss_plat_data *plat_priv)
 		}
 		if (!plat_priv->dms.nv_mac_not_prov && !plat_priv->dms.mac_valid) {
 			cnss_pr_err("Unable to get MAC from DMS after retries\n");
-			//CNSS_ASSERT(0);
+			CNSS_ASSERT(0);
 			return -EINVAL;
 		}
 	}
@@ -1423,7 +1421,6 @@ void cnss_schedule_recovery(struct device *dev,
 {
 	struct cnss_plat_data *plat_priv = cnss_bus_dev_to_plat_priv(dev);
 	struct cnss_recovery_data *data;
-	int gfp = GFP_KERNEL;
 
 	if (!test_bit(CNSS_DEV_ERR_NOTIFY, &plat_priv->driver_state))
 		cnss_bus_update_status(plat_priv, CNSS_FW_DOWN);
@@ -1434,10 +1431,11 @@ void cnss_schedule_recovery(struct device *dev,
 		return;
 	}
 
-	if (in_interrupt() || irqs_disabled())
-		gfp = GFP_ATOMIC;
-
-	data = kzalloc(sizeof(*data), gfp);
+	/* Allocating memory always with GFP_ATOMIC flag inside
+	 * cnss_schedule_recovery(). Because there is a chance for
+	 * this api to be invoked in atomic context on some platforms.
+	 */
+	data = kzalloc(sizeof(*data), GFP_ATOMIC);
 	if (!data)
 		return;
 
@@ -2867,27 +2865,6 @@ static ssize_t hw_trace_override_store(struct device *dev,
 	return count;
 }
 
-static ssize_t data_stall_store(struct device *dev,
-                              struct device_attribute *attr,
-                              const char *buf, size_t count)
-{
-	int data_stall = 0;
-	struct cnss_plat_data *plat_priv = dev_get_drvdata(dev);
-	struct cnss_pci_data *pci_priv = plat_priv->bus_priv;
-
-	if (!pci_priv) {
-		cnss_pr_err("pci_priv is NULL\n");
-		return -ENODEV;
-	}
-	if (sscanf(buf, "%du", &data_stall) != 1)
-		return -EINVAL;
-
-	cnss_pr_err("Wlan data_stall event reason is %d\n",
-		    data_stall);
-	cnss_force_fw_assert(&pci_priv->pci_dev->dev);
-	return count;
-}
-
 static DEVICE_ATTR_WO(fs_ready);
 static DEVICE_ATTR_WO(shutdown);
 static DEVICE_ATTR_WO(recovery);
@@ -2896,7 +2873,6 @@ static DEVICE_ATTR_WO(qdss_trace_start);
 static DEVICE_ATTR_WO(qdss_trace_stop);
 static DEVICE_ATTR_WO(qdss_conf_download);
 static DEVICE_ATTR_WO(hw_trace_override);
-static DEVICE_ATTR_WO(data_stall);
 
 static struct attribute *cnss_attrs[] = {
 	&dev_attr_fs_ready.attr,
@@ -2907,7 +2883,6 @@ static struct attribute *cnss_attrs[] = {
 	&dev_attr_qdss_trace_stop.attr,
 	&dev_attr_qdss_conf_download.attr,
 	&dev_attr_hw_trace_override.attr,
-	&dev_attr_data_stall.attr,
 	NULL,
 };
 
@@ -3078,6 +3053,10 @@ static void cnss_init_control_params(struct cnss_plat_data *plat_priv)
 	plat_priv->ctrl_params.qmi_timeout = CNSS_QMI_TIMEOUT_DEFAULT;
 	plat_priv->ctrl_params.bdf_type = CNSS_BDF_TYPE_DEFAULT;
 	plat_priv->ctrl_params.time_sync_period = CNSS_TIME_SYNC_PERIOD_DEFAULT;
+	/* Set adsp_pc_enabled default value to true as ADSP pc is always
+	 * enabled by default
+	 */
+	plat_priv->adsp_pc_enabled = true;
 }
 
 static void cnss_get_pm_domain_info(struct cnss_plat_data *plat_priv)
@@ -3161,6 +3140,7 @@ static int cnss_probe(struct platform_device *plat_dev)
 	struct cnss_plat_data *plat_priv;
 	const struct of_device_id *of_id;
 	const struct platform_device_id *device_id;
+	int retry = 0;
 
 	if (cnss_get_plat_priv(plat_dev)) {
 		cnss_pr_err("Driver is already initialized!\n");
@@ -3227,13 +3207,9 @@ static int cnss_probe(struct platform_device *plat_dev)
 	if (ret)
 		goto deinit_event_work;
 
-	ret = cnss_dms_init(plat_priv);
-	if (ret)
-		goto deinit_qmi;
-
 	ret = cnss_debugfs_create(plat_priv);
 	if (ret)
-		goto deinit_dms;
+		goto deinit_qmi;
 
 	ret = cnss_misc_init(plat_priv);
 	if (ret)
@@ -3243,14 +3219,27 @@ static int cnss_probe(struct platform_device *plat_dev)
 	 * device power on and bus init.
 	 */
 	if (!test_bit(SKIP_DEVICE_BOOT, &plat_priv->ctrl_params.quirks)) {
-		ret = cnss_power_on_device(plat_priv);
+retry:
+		ret = cnss_power_on_device(plat_priv, true);
 		if (ret)
 			goto deinit_misc;
 
 		ret = cnss_bus_init(plat_priv);
-		if (ret)
+		if (ret) {
+			if ((ret != -EPROBE_DEFER) &&
+			    retry++ < POWER_ON_RETRY_MAX_TIMES) {
+				cnss_power_off_device(plat_priv);
+				cnss_pr_dbg("Retry cnss_bus_init #%d\n", retry);
+				msleep(POWER_ON_RETRY_DELAY_MS * retry);
+				goto retry;
+			}
 			goto power_off;
+		}
 	}
+
+	ret = cnss_dms_init(plat_priv);
+	if (ret)
+		goto deinit_bus;
 
 	cnss_register_coex_service(plat_priv);
 	cnss_register_ims_service(plat_priv);
@@ -3263,6 +3252,9 @@ static int cnss_probe(struct platform_device *plat_dev)
 
 	return 0;
 
+deinit_bus:
+	if (!test_bit(SKIP_DEVICE_BOOT, &plat_priv->ctrl_params.quirks))
+		cnss_bus_deinit(plat_priv);
 power_off:
 	if (!test_bit(SKIP_DEVICE_BOOT, &plat_priv->ctrl_params.quirks))
 		cnss_power_off_device(plat_priv);
@@ -3270,8 +3262,6 @@ deinit_misc:
 	cnss_misc_deinit(plat_priv);
 destroy_debugfs:
 	cnss_debugfs_destroy(plat_priv);
-deinit_dms:
-	cnss_dms_deinit(plat_priv);
 deinit_qmi:
 	cnss_qmi_deinit(plat_priv);
 deinit_event_work:
@@ -3298,10 +3288,10 @@ static int cnss_remove(struct platform_device *plat_dev)
 	cnss_genl_exit();
 	cnss_unregister_ims_service(plat_priv);
 	cnss_unregister_coex_service(plat_priv);
+	cnss_dms_deinit(plat_priv);
 	cnss_bus_deinit(plat_priv);
 	cnss_misc_deinit(plat_priv);
 	cnss_debugfs_destroy(plat_priv);
-	cnss_dms_deinit(plat_priv);
 	cnss_qmi_deinit(plat_priv);
 	cnss_event_work_deinit(plat_priv);
 	cnss_remove_sysfs(plat_priv);

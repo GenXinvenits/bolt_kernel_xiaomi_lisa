@@ -1,39 +1,26 @@
- /*
-  * Goodix Touchscreen Driver
-  * Copyright (C) 2020 - 2021 Goodix, Inc.
-  * Copyright (C) 2021 XiaoMi, Inc.
-  *
-  * This program is free software; you can redistribute it and/or modify
-  * it under the terms of the GNU General Public License as published by
-  * the Free Software Foundation; either version 2 of the License, or
-  * (at your option) any later version.
-  *
-  * This program is distributed in the hope that it will be a reference
-  * to you, when you are integrating the GOODiX's CTP IC into your system,
-  * but WITHOUT ANY WARRANTY; without even the implied warranty of
-  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-  * General Public License for more details.
-  *
-  */
+// SPDX-License-Identifier: GPL-2.0
+// Goodix Touchscreen Driver
+// Copyright (C) 2020 - 2021 Goodix, Inc.
+// Copyright (C) 2021 XiaoMi, Inc.
+
 #include "goodix_ts_core.h"
 
-#define GOODIX_RETRY_5				5
-#define GOODIX_RETRY_10				10
+#define GOODIX_RETRY_5 5
+#define GOODIX_RETRY_10 10
 
-#define GOODIX_SPI_MODE_REG			0xC900
-#define GOODIX_SPI_NORMAL_MODE_0	0x01
+#define GOODIX_SPI_MODE_REG 0xC900
+#define GOODIX_SPI_NORMAL_MODE_0 0x01
 
-#define GOODIX_REG_CLK_STA0			0xD807
-#define GOODIX_CLK_STA0_ENABLE		0xFF
-#define GOODIX_REG_CLK_STA1			0xD806
-#define GOODIX_CLK_STA1_ENABLE		0x77
-#define GOODIX_REG_TRIM_D12			0xD006
-#define GOODIX_TRIM_D12_LEVEL		0x3C
-#define GOODIX_REG_RESET			0xD808
-#define GOODIX_RESET_EN				0xFA
-#define HOLD_CPU_REG_W				0x0002
-#define HOLD_CPU_REG_R				0x2000
-
+#define GOODIX_REG_CLK_STA0 0xD807
+#define GOODIX_CLK_STA0_ENABLE 0xFF
+#define GOODIX_REG_CLK_STA1 0xD806
+#define GOODIX_CLK_STA1_ENABLE 0x77
+#define GOODIX_REG_TRIM_D12 0xD006
+#define GOODIX_TRIM_D12_LEVEL 0x3C
+#define GOODIX_REG_RESET 0xD808
+#define GOODIX_RESET_EN 0xFA
+#define HOLD_CPU_REG_W 0x0002
+#define HOLD_CPU_REG_R 0x2000
 
 enum brl_request_code {
 	BRL_REQUEST_CODE_CONFIG = 0x01,
@@ -53,10 +40,8 @@ static int brl_select_spi_mode(struct goodix_ts_core *cd)
 		return 0;
 
 	for (i = 0; i < GOODIX_RETRY_5; i++) {
-		cd->hw_ops->write(cd, GOODIX_SPI_MODE_REG,
-				&w_value, 1);
-		ret = cd->hw_ops->read(cd, GOODIX_SPI_MODE_REG,
-				&r_value, 1);
+		cd->hw_ops->write(cd, GOODIX_SPI_MODE_REG, &w_value, 1);
+		ret = cd->hw_ops->read(cd, GOODIX_SPI_MODE_REG, &r_value, 1);
 		if (!ret && r_value == w_value) {
 			return 0;
 		}
@@ -67,8 +52,8 @@ static int brl_select_spi_mode(struct goodix_ts_core *cd)
 
 static int brl_reset_after(struct goodix_ts_core *cd)
 {
-	u8 reg_val[2] = {0};
-	u8 temp_buf[12] = {0};
+	u8 reg_val[2] = { 0 };
+	u8 temp_buf[12] = { 0 };
 	int ret;
 	int retry;
 
@@ -90,8 +75,8 @@ static int brl_reset_after(struct goodix_ts_core *cd)
 		ret |= cd->hw_ops->read(cd, HOLD_CPU_REG_R, &temp_buf[4], 4);
 		ret |= cd->hw_ops->read(cd, HOLD_CPU_REG_R, &temp_buf[8], 4);
 		if (!ret && !memcmp(&temp_buf[0], &temp_buf[4], 4) &&
-			!memcmp(&temp_buf[4], &temp_buf[8], 4) &&
-			!memcmp(&temp_buf[0], &temp_buf[8], 4)) {
+		    !memcmp(&temp_buf[4], &temp_buf[8], 4) &&
+		    !memcmp(&temp_buf[0], &temp_buf[8], 4)) {
 			break;
 		}
 	}
@@ -170,8 +155,10 @@ static int brl_power_on(struct goodix_ts_core *cd, bool on)
 			gpio_direction_output(cd->board_data.reset_gpio, 1);
 			ret = brl_reset_after(cd);
 			if (ret < 0) {
-				ts_err("reset_after process failed,ret=%d", ret);
-				gpio_direction_output(cd->board_data.reset_gpio, 0);
+				ts_err("reset_after process failed,ret=%d",
+				       ret);
+				gpio_direction_output(cd->board_data.reset_gpio,
+						      0);
 				return ret;
 			}
 			msleep(GOODIX_NORMAL_RESET_DELAY_MS);
@@ -224,7 +211,7 @@ static int brl_power_on(struct goodix_ts_core *cd, bool on)
 	return ret;
 }
 
-#define GOODIX_SLEEP_CMD	0x84
+#define GOODIX_SLEEP_CMD 0x84
 int brl_suspend(struct goodix_ts_core *cd)
 {
 	struct goodix_ts_cmd sleep_cmd;
@@ -242,7 +229,7 @@ int brl_resume(struct goodix_ts_core *cd)
 	return cd->hw_ops->reset(cd, GOODIX_NORMAL_RESET_DELAY_MS);
 }
 
-#define GOODIX_GESTURE_CMD	0x12
+#define GOODIX_GESTURE_CMD 0x12
 int brl_gesture(struct goodix_ts_core *cd, int gesture_type)
 {
 	struct goodix_ts_cmd cmd;
@@ -258,7 +245,7 @@ int brl_gesture(struct goodix_ts_core *cd, int gesture_type)
 	return 0;
 }
 
-#define FW_VERSION_INFO_ADDR	0x1000C
+#define FW_VERSION_INFO_ADDR 0x1000C
 static int brl_dev_confirm(struct goodix_ts_core *cd)
 {
 	struct goodix_ts_hw_ops *hw_ops = cd->hw_ops;
@@ -267,7 +254,8 @@ static int brl_dev_confirm(struct goodix_ts_core *cd)
 	int retry = 3;
 
 	while (retry--) {
-		ret = hw_ops->read(cd, FW_VERSION_INFO_ADDR, (u8 *)&fw, sizeof(fw));
+		ret = hw_ops->read(cd, FW_VERSION_INFO_ADDR, (u8 *)&fw,
+				   sizeof(fw));
 		if (!ret)
 			break;
 		usleep_range(5000, 5100);
@@ -312,7 +300,7 @@ static int brl_irq_enbale(struct goodix_ts_core *cd, bool enable)
 }
 
 static int brl_read(struct goodix_ts_core *cd, unsigned int addr,
-		unsigned char *data, unsigned int len)
+		    unsigned char *data, unsigned int len)
 {
 	struct goodix_bus_interface *bus = cd->bus;
 
@@ -320,7 +308,7 @@ static int brl_read(struct goodix_ts_core *cd, unsigned int addr,
 }
 
 static int brl_write(struct goodix_ts_core *cd, unsigned int addr,
-		 unsigned char *data, unsigned int len)
+		     unsigned char *data, unsigned int len)
 {
 	struct goodix_bus_interface *bus = cd->bus;
 
@@ -328,25 +316,25 @@ static int brl_write(struct goodix_ts_core *cd, unsigned int addr,
 }
 
 /* command ack info */
-#define CMD_ACK_IDLE				0x01
-#define CMD_ACK_BUSY				0x02
-#define CMD_ACK_BUFFER_OVERFLOW		0x03
-#define CMD_ACK_CHECKSUM_ERROR		0x04
-#define CMD_ACK_OK					0x80
+#define CMD_ACK_IDLE 0x01
+#define CMD_ACK_BUSY 0x02
+#define CMD_ACK_BUFFER_OVERFLOW 0x03
+#define CMD_ACK_CHECKSUM_ERROR 0x04
+#define CMD_ACK_OK 0x80
 
-#define GOODIX_CMD_RETRY	6
-static int brl_send_cmd(struct goodix_ts_core *cd,
-	struct goodix_ts_cmd *cmd)
+#define GOODIX_CMD_RETRY 6
+static int brl_send_cmd(struct goodix_ts_core *cd, struct goodix_ts_cmd *cmd)
 {
 	int ret, retry, i;
 	struct goodix_ts_cmd cmd_ack;
 	struct goodix_ic_info_misc *misc = &cd->ic_info.misc;
 	struct goodix_ts_hw_ops *hw_ops = cd->hw_ops;
 
-	#ifdef CONFIG_PM
+#ifdef CONFIG_PM
 	if (cd->tp_pm_suspend) {
 		ts_info("device in suspend, wait to resume.");
-		ret = wait_for_completion_timeout(&cd->pm_resume_completion, msecs_to_jiffies(300));
+		ret = wait_for_completion_timeout(&cd->pm_resume_completion,
+						  msecs_to_jiffies(300));
 		if (!ret) {
 			ts_err("system can't finished resuming procedure, cancel to send cmd.");
 			return -EINVAL;
@@ -357,34 +345,33 @@ static int brl_send_cmd(struct goodix_ts_core *cd,
 	cmd->state = 0;
 	cmd->ack = 0;
 	goodix_append_checksum(&(cmd->buf[2]), cmd->len - 2,
-						CHECKSUM_MODE_U8_LE);
+			       CHECKSUM_MODE_U8_LE);
 	ts_debug("cmd data %*ph", cmd->len, &(cmd->buf[2]));
 
 	retry = 0;
 	while (retry++ < GOODIX_CMD_RETRY) {
-		ret = hw_ops->write(cd, misc->cmd_addr,
-						cmd->buf, sizeof(*cmd));
+		ret = hw_ops->write(cd, misc->cmd_addr, cmd->buf, sizeof(*cmd));
 		if (ret < 0) {
 			ts_err("failed write command");
 			return ret;
 		}
 		for (i = 0; i < GOODIX_CMD_RETRY; i++) {
 			/* check command result */
-			ret = hw_ops->read(cd, misc->cmd_addr,
-						cmd_ack.buf, sizeof(cmd_ack));
+			ret = hw_ops->read(cd, misc->cmd_addr, cmd_ack.buf,
+					   sizeof(cmd_ack));
 			if (ret < 0) {
 				ts_err("failed read command ack, %d", ret);
 				return ret;
 			}
-			ts_debug("cmd ack data %*ph",
-				 (int)sizeof(cmd_ack), cmd_ack.buf);
+			ts_debug("cmd ack data %*ph", (int)sizeof(cmd_ack),
+				 cmd_ack.buf);
 			if (cmd_ack.ack == CMD_ACK_OK) {
 				usleep_range(2000, 2100);
 				return 0;
 			}
 
 			if (cmd_ack.ack == CMD_ACK_BUSY ||
-				cmd_ack.ack == 0x00) {
+			    cmd_ack.ack == 0x00) {
 				usleep_range(1000, 1100);
 				continue;
 			}
@@ -392,13 +379,13 @@ static int brl_send_cmd(struct goodix_ts_core *cd,
 				usleep_range(10000, 11000);
 			usleep_range(1000, 1100);
 			break;
-			}
+		}
 	}
 	ts_info("failed get valid cmd ack");
 	return -EINVAL;
 }
 
-#pragma  pack(1)
+#pragma pack(1)
 struct goodix_config_head {
 	union {
 		struct {
@@ -421,18 +408,18 @@ struct goodix_config_head {
 };
 #pragma pack()
 
-#define CONFIG_CND_LEN				4
-#define CONFIG_CMD_START			0x04
-#define CONFIG_CMD_WRITE			0x05
-#define CONFIG_CMD_EXIT				0x06
-#define CONFIG_CMD_READ_START		0x07
-#define CONFIG_CMD_READ_EXIT		0x08
+#define CONFIG_CND_LEN 4
+#define CONFIG_CMD_START 0x04
+#define CONFIG_CMD_WRITE 0x05
+#define CONFIG_CMD_EXIT 0x06
+#define CONFIG_CMD_READ_START 0x07
+#define CONFIG_CMD_READ_EXIT 0x08
 
-#define CONFIG_CMD_STATUS_PASS		0x80
-#define CONFIG_CMD_WAIT_RETRY		20
+#define CONFIG_CMD_STATUS_PASS 0x80
+#define CONFIG_CMD_WAIT_RETRY 20
 
-static int wait_cmd_status(struct goodix_ts_core *cd,
-	u8 target_status, int retry)
+static int wait_cmd_status(struct goodix_ts_core *cd, u8 target_status,
+			   int retry)
 {
 	struct goodix_ts_cmd cmd_ack;
 	struct goodix_ic_info_misc *misc = &cd->ic_info.misc;
@@ -440,7 +427,8 @@ static int wait_cmd_status(struct goodix_ts_core *cd,
 	int i, ret;
 
 	for (i = 0; i < retry; i++) {
-		ret = hw_ops->read(cd, misc->cmd_addr, cmd_ack.buf, sizeof(cmd_ack));
+		ret = hw_ops->read(cd, misc->cmd_addr, cmd_ack.buf,
+				   sizeof(cmd_ack));
 		if (!ret && cmd_ack.state == target_status) {
 			ts_debug("status check pass");
 			return 0;
@@ -455,7 +443,7 @@ static int wait_cmd_status(struct goodix_ts_core *cd,
 }
 
 static int send_cfg_cmd(struct goodix_ts_core *cd,
-	struct goodix_ts_cmd *cfg_cmd)
+			struct goodix_ts_cmd *cfg_cmd)
 {
 	int ret;
 
@@ -464,7 +452,8 @@ static int send_cfg_cmd(struct goodix_ts_core *cd,
 		ts_err("failed write cfg prepare cmd %d", ret);
 		return ret;
 	}
-	ret = wait_cmd_status(cd, CONFIG_CMD_STATUS_PASS, CONFIG_CMD_WAIT_RETRY);
+	ret = wait_cmd_status(cd, CONFIG_CMD_STATUS_PASS,
+			      CONFIG_CMD_WAIT_RETRY);
 	if (ret) {
 		ts_err("failed wait for fw ready for config, %d", ret);
 		return ret;
@@ -481,8 +470,8 @@ static int brl_send_config(struct goodix_ts_core *cd, u8 *cfg, int len)
 	struct goodix_ts_hw_ops *hw_ops = cd->hw_ops;
 
 	if (len > misc->fw_buffer_max_len) {
-		ts_err("config len exceed limit %d > %d",
-			len , misc->fw_buffer_max_len);
+		ts_err("config len exceed limit %d > %d", len,
+		       misc->fw_buffer_max_len);
 		return -EINVAL;
 	}
 
@@ -565,8 +554,8 @@ static int brl_read_config(struct goodix_ts_core *cd, u8 *cfg, int size)
 		return ret;
 	}
 
-	ret = hw_ops->read(cd, misc->fw_buffer_addr,
-				cfg_head.buf, sizeof(cfg_head));
+	ret = hw_ops->read(cd, misc->fw_buffer_addr, cfg_head.buf,
+			   sizeof(cfg_head));
 	if (ret) {
 		ts_err("failed read config head %d", ret);
 		goto exit;
@@ -580,24 +569,24 @@ static int brl_read_config(struct goodix_ts_core *cd, u8 *cfg, int size)
 
 	cfg_head.cfg_len = le16_to_cpu(cfg_head.cfg_len);
 	if (cfg_head.cfg_len > misc->fw_buffer_max_len ||
-		cfg_head.cfg_len > size) {
+	    cfg_head.cfg_len > size) {
 		ts_err("cfg len exceed buffer size %d > %d", cfg_head.cfg_len,
-			misc->fw_buffer_max_len);
+		       misc->fw_buffer_max_len);
 		ret = -EINVAL;
 		goto exit;
 	}
 
 	memcpy(cfg, cfg_head.buf, sizeof(cfg_head));
 	ret = hw_ops->read(cd, misc->fw_buffer_addr + sizeof(cfg_head),
-				cfg + sizeof(cfg_head), cfg_head.cfg_len);
+			   cfg + sizeof(cfg_head), cfg_head.cfg_len);
 	if (ret) {
 		ts_err("failed read cfg pack, %d", ret);
 		goto exit;
 	}
 
 	ts_info("config len %d", cfg_head.cfg_len);
-	if (checksum_cmp(cfg + sizeof(cfg_head),
-			cfg_head.cfg_len, CHECKSUM_MODE_U16_LE)) {
+	if (checksum_cmp(cfg + sizeof(cfg_head), cfg_head.cfg_len,
+			 CHECKSUM_MODE_U16_LE)) {
 		ts_err("config body checksum error");
 		ret = -EINVAL;
 		goto exit;
@@ -617,8 +606,6 @@ exit:
 	return cfg_head.cfg_len + sizeof(cfg_head);
 }
 
-
-
 /*
  * return: 0 for no error.
  * GOODIX_EBUS when encounter a bus error
@@ -627,11 +614,11 @@ exit:
  * in this case the sensorID is valid.
 */
 static int brl_read_version(struct goodix_ts_core *cd,
-			struct goodix_fw_version *version)
+			    struct goodix_fw_version *version)
 {
 	int ret, i;
 	struct goodix_ts_hw_ops *hw_ops = cd->hw_ops;
-	u8 buf[sizeof(struct goodix_fw_version)] = {0};
+	u8 buf[sizeof(struct goodix_fw_version)] = { 0 };
 
 	for (i = 0; i < 3; i++) {
 		ret = hw_ops->read(cd, FW_VERSION_INFO_ADDR, buf, sizeof(buf));
@@ -656,16 +643,18 @@ static int brl_read_version(struct goodix_ts_core *cd,
 	}
 	memcpy(version, buf, sizeof(*version));
 	ts_info("rom_pid:%s", version->rom_pid);
-	ts_info("rom_vid:%*ph", (int)sizeof(version->rom_vid), version->rom_vid);
+	ts_info("rom_vid:%*ph", (int)sizeof(version->rom_vid),
+		version->rom_vid);
 	ts_info("pid:%s", version->patch_pid);
-	ts_info("vid:%*ph", (int)sizeof(version->patch_vid), version->patch_vid);
+	ts_info("vid:%*ph", (int)sizeof(version->patch_vid),
+		version->patch_vid);
 	ts_info("sensor_id:%d", version->sensor_id);
 
 	return 0;
 }
 
-#define LE16_TO_CPU(x)		(x = le16_to_cpu(x))
-#define LE32_TO_CPU(x)		(x = le32_to_cpu(x))
+#define LE16_TO_CPU(x) (x = le16_to_cpu(x))
+#define LE32_TO_CPU(x) (x = le32_to_cpu(x))
 static int convert_ic_info(struct goodix_ic_info *info, const u8 *data)
 {
 	int i;
@@ -683,7 +672,8 @@ static int convert_ic_info(struct goodix_ic_info *info, const u8 *data)
 	data += sizeof(struct goodix_ic_info_version);
 	memcpy(feature, data, sizeof(*feature));
 	feature->freqhop_feature = le16_to_cpu(feature->freqhop_feature);
-	feature->calibration_feature = le16_to_cpu(feature->calibration_feature);
+	feature->calibration_feature =
+		le16_to_cpu(feature->calibration_feature);
 	feature->gesture_feature = le16_to_cpu(feature->gesture_feature);
 	feature->side_touch_feature = le16_to_cpu(feature->side_touch_feature);
 	feature->stylus_feature = le16_to_cpu(feature->stylus_feature);
@@ -696,17 +686,18 @@ static int convert_ic_info(struct goodix_ic_info *info, const u8 *data)
 	parm->active_scan_rate_num = *(data++);
 	if (parm->active_scan_rate_num > MAX_SCAN_RATE_NUM) {
 		ts_err("invalid scan rate num %d > %d",
-			parm->active_scan_rate_num, MAX_SCAN_RATE_NUM);
+		       parm->active_scan_rate_num, MAX_SCAN_RATE_NUM);
 		return -EINVAL;
 	}
 	for (i = 0; i < parm->active_scan_rate_num; i++)
-		parm->active_scan_rate[i] = le16_to_cpup((__le16 *)(data + i * 2));
+		parm->active_scan_rate[i] =
+			le16_to_cpup((__le16 *)(data + i * 2));
 
 	data += parm->active_scan_rate_num * 2;
 	parm->mutual_freq_num = *(data++);
 	if (parm->mutual_freq_num > MAX_SCAN_FREQ_NUM) {
-		ts_err("invalid mntual freq num %d > %d",
-			parm->mutual_freq_num, MAX_SCAN_FREQ_NUM);
+		ts_err("invalid mntual freq num %d > %d", parm->mutual_freq_num,
+		       MAX_SCAN_FREQ_NUM);
 		return -EINVAL;
 	}
 	for (i = 0; i < parm->mutual_freq_num; i++)
@@ -715,8 +706,8 @@ static int convert_ic_info(struct goodix_ic_info *info, const u8 *data)
 	data += parm->mutual_freq_num * 2;
 	parm->self_tx_freq_num = *(data++);
 	if (parm->self_tx_freq_num > MAX_SCAN_FREQ_NUM) {
-		ts_err("invalid tx freq num %d > %d",
-			parm->self_tx_freq_num, MAX_SCAN_FREQ_NUM);
+		ts_err("invalid tx freq num %d > %d", parm->self_tx_freq_num,
+		       MAX_SCAN_FREQ_NUM);
 		return -EINVAL;
 	}
 	for (i = 0; i < parm->self_tx_freq_num; i++)
@@ -725,8 +716,8 @@ static int convert_ic_info(struct goodix_ic_info *info, const u8 *data)
 	data += parm->self_tx_freq_num * 2;
 	parm->self_rx_freq_num = *(data++);
 	if (parm->self_rx_freq_num > MAX_SCAN_FREQ_NUM) {
-		ts_err("invalid rx freq num %d > %d",
-			parm->self_rx_freq_num, MAX_SCAN_FREQ_NUM);
+		ts_err("invalid rx freq num %d > %d", parm->self_rx_freq_num,
+		       MAX_SCAN_FREQ_NUM);
 		return -EINVAL;
 	}
 	for (i = 0; i < parm->self_rx_freq_num; i++)
@@ -735,8 +726,8 @@ static int convert_ic_info(struct goodix_ic_info *info, const u8 *data)
 	data += parm->self_rx_freq_num * 2;
 	parm->stylus_freq_num = *(data++);
 	if (parm->stylus_freq_num > MAX_FREQ_NUM_STYLUS) {
-		ts_err("invalid stylus freq num %d > %d",
-			parm->stylus_freq_num, MAX_FREQ_NUM_STYLUS);
+		ts_err("invalid stylus freq num %d > %d", parm->stylus_freq_num,
+		       MAX_FREQ_NUM_STYLUS);
 		return -EINVAL;
 	}
 	for (i = 0; i < parm->stylus_freq_num; i++)
@@ -786,23 +777,22 @@ static int convert_ic_info(struct goodix_ic_info *info, const u8 *data)
 
 static void print_ic_info(struct goodix_ic_info *ic_info)
 {
-	struct goodix_ic_info_version *version = &ic_info->version;
-	struct goodix_ic_info_feature *feature = &ic_info->feature;
-	struct goodix_ic_info_param *parm = &ic_info->parm;
-	struct goodix_ic_info_misc *misc = &ic_info->misc;
+	__maybe_unused struct goodix_ic_info_version *version =
+		&ic_info->version;
+	__maybe_unused struct goodix_ic_info_feature *feature =
+		&ic_info->feature;
+	__maybe_unused struct goodix_ic_info_param *parm = &ic_info->parm;
+	__maybe_unused struct goodix_ic_info_misc *misc = &ic_info->misc;
 
-	ts_info("ic_info_length:                %d",
-		ic_info->length);
+	ts_info("ic_info_length:                %d", ic_info->length);
 	ts_info("info_customer_id:              0x%01X",
 		version->info_customer_id);
 	ts_info("info_version_id:               0x%01X",
 		version->info_version_id);
-	ts_info("ic_die_id:                     0x%01X",
-		version->ic_die_id);
+	ts_info("ic_die_id:                     0x%01X", version->ic_die_id);
 	ts_info("ic_version_id:                 0x%01X",
 		version->ic_version_id);
-	ts_info("config_id:                     0x%4X",
-		version->config_id);
+	ts_info("config_id:                     0x%4X", version->config_id);
 	ts_info("config_version:                0x%01X",
 		version->config_version);
 	ts_info("frame_data_customer_id:        0x%01X",
@@ -824,10 +814,10 @@ static void print_ic_info(struct goodix_ic_info *ic_info)
 		feature->side_touch_feature);
 	ts_info("stylus_feature:                0x%04X",
 		feature->stylus_feature);
-	ts_info("Drv*Sen,Button,Force num:      %d x %d, %d, %d",
-		parm->drv_num, parm->sen_num, parm->button_num, parm->force_num);
-	ts_info("Cmd:                           0x%04X, %d",
-		misc->cmd_addr, misc->cmd_max_len);
+	ts_info("Drv*Sen,Button,Force num:      %d x %d, %d, %d", parm->drv_num,
+		parm->sen_num, parm->button_num, parm->force_num);
+	ts_info("Cmd:                           0x%04X, %d", misc->cmd_addr,
+		misc->cmd_max_len);
 	ts_info("Cmd-Reply:                     0x%04X, %d",
 		misc->cmd_reply_addr, misc->cmd_reply_len);
 	ts_info("FW-State:                      0x%04X, %d",
@@ -836,8 +826,7 @@ static void print_ic_info(struct goodix_ic_info *ic_info)
 		misc->fw_buffer_addr, misc->fw_buffer_max_len);
 	ts_info("Touch-Data:                    0x%04X, %d",
 		misc->touch_data_addr, misc->touch_data_head_len);
-	ts_info("point_struct_len:              %d",
-		misc->point_struct_len);
+	ts_info("point_struct_len:              %d", misc->point_struct_len);
 	ts_info("mutual_rawdata_addr:           0x%04X",
 		misc->mutual_rawdata_addr);
 	ts_info("mutual_diffdata_addr:          0x%04X",
@@ -848,24 +837,23 @@ static void print_ic_info(struct goodix_ic_info *ic_info)
 		misc->self_diffdata_addr);
 	ts_info("stylus_rawdata_addr:           0x%04X, %d",
 		misc->stylus_rawdata_addr, misc->stylus_rawdata_len);
-	ts_info("esd_addr:                      0x%04X",
-		misc->esd_addr);
+	ts_info("esd_addr:                      0x%04X", misc->esd_addr);
 }
 
-#define GOODIX_GET_IC_INFO_RETRY	3
-#define GOODIX_IC_INFO_MAX_LEN		1024
-#define GOODIX_IC_INFO_ADDR			0x10068
+#define GOODIX_GET_IC_INFO_RETRY 3
+#define GOODIX_IC_INFO_MAX_LEN 1024
+#define GOODIX_IC_INFO_ADDR 0x10068
 static int brl_get_ic_info(struct goodix_ts_core *cd,
-	struct goodix_ic_info *ic_info, bool isPrint)
+			   struct goodix_ic_info *ic_info, bool isPrint)
 {
 	int ret, i;
 	u16 length = 0;
-	u8 afe_data[GOODIX_IC_INFO_MAX_LEN] = {0};
+	u8 afe_data[GOODIX_IC_INFO_MAX_LEN] = { 0 };
 	struct goodix_ts_hw_ops *hw_ops = cd->hw_ops;
 
 	for (i = 0; i < GOODIX_GET_IC_INFO_RETRY; i++) {
-		ret = hw_ops->read(cd, GOODIX_IC_INFO_ADDR,
-					(u8 *)&length, sizeof(length));
+		ret = hw_ops->read(cd, GOODIX_IC_INFO_ADDR, (u8 *)&length,
+				   sizeof(length));
 		if (ret) {
 			ts_info("failed get ic info length, %d", ret);
 			usleep_range(5000, 5100);
@@ -873,7 +861,8 @@ static int brl_get_ic_info(struct goodix_ts_core *cd,
 		}
 		length = le16_to_cpu(length);
 		if (length >= GOODIX_IC_INFO_MAX_LEN) {
-			ts_info("invalid ic info length %d, retry %d", length, i);
+			ts_info("invalid ic info length %d, retry %d", length,
+				i);
 			continue;
 		}
 
@@ -889,8 +878,8 @@ static int brl_get_ic_info(struct goodix_ts_core *cd,
 			usleep_range(5000, 5100);
 			continue;
 		}
-		if (checksum_cmp((const uint8_t *)afe_data,
-				length, CHECKSUM_MODE_U8_LE)) {
+		if (checksum_cmp((const uint8_t *)afe_data, length,
+				 CHECKSUM_MODE_U8_LE)) {
 			ts_info("fw info checksum error!");
 			usleep_range(5000, 5100);
 			continue;
@@ -911,14 +900,14 @@ static int brl_get_ic_info(struct goodix_ts_core *cd,
 		print_ic_info(ic_info);
 	/* check some key info */
 	if (!ic_info->misc.cmd_addr || !ic_info->misc.fw_buffer_addr ||
-		!ic_info->misc.touch_data_addr) {
+	    !ic_info->misc.touch_data_addr) {
 		ts_err("cmd_addr fw_buf_addr and touch_data_addr is null");
 		return -EINVAL;
 	}
 	return 0;
 }
 
-#define GOODIX_ESD_TICK_WRITE_DATA		0xAA
+#define GOODIX_ESD_TICK_WRITE_DATA 0xAA
 static int brl_esd_check(struct goodix_ts_core *cd)
 {
 	int ret;
@@ -948,18 +937,18 @@ static int brl_esd_check(struct goodix_ts_core *cd)
 	return 0;
 }
 
-#define IRQ_EVENT_HEAD_LEN			8
-#define BYTES_PER_POINT				8
-#define COOR_DATA_CHECKSUM_SIZE		2
+#define IRQ_EVENT_HEAD_LEN 8
+#define BYTES_PER_POINT 8
+#define COOR_DATA_CHECKSUM_SIZE 2
 
-#define GOODIX_TOUCH_EVENT			0x80
-#define GOODIX_REQUEST_EVENT		0x40
-#define GOODIX_GESTURE_EVENT		0x20
-#define POINT_TYPE_STYLUS_HOVER		0x01
-#define POINT_TYPE_STYLUS			0x03
+#define GOODIX_TOUCH_EVENT 0x80
+#define GOODIX_REQUEST_EVENT 0x40
+#define GOODIX_GESTURE_EVENT 0x20
+#define POINT_TYPE_STYLUS_HOVER 0x01
+#define POINT_TYPE_STYLUS 0x03
 
-static void goodix_parse_finger(struct goodix_touch_data *touch_data,
-				u8 *buf, int touch_num)
+static void goodix_parse_finger(struct goodix_touch_data *touch_data, u8 *buf,
+				int touch_num)
 {
 	unsigned int id = 0, x = 0, y = 0, w = 0;
 	static u32 pre_finger_map;
@@ -970,7 +959,7 @@ static void goodix_parse_finger(struct goodix_touch_data *touch_data,
 	coor_data = &buf[IRQ_EVENT_HEAD_LEN];
 	for (i = 0; i < touch_num; i++) {
 		id = (coor_data[0] >> 4) & 0x0F;
-		if(id >= GOODIX_MAX_TOUCH){
+		if (id >= GOODIX_MAX_TOUCH) {
 			ts_info("invalid finger id =%d", id);
 			touch_data->touch_num = 0;
 			return;
@@ -997,9 +986,9 @@ static void goodix_parse_finger(struct goodix_touch_data *touch_data,
 	touch_data->touch_num = touch_num;
 }
 
-static unsigned int goodix_pen_btn_code[] = {BTN_STYLUS, BTN_STYLUS2};
-static void goodix_parse_pen(struct goodix_pen_data *pen_data,
-	u8 *buf, int touch_num)
+static unsigned int goodix_pen_btn_code[] = { BTN_STYLUS, BTN_STYLUS2 };
+static void goodix_parse_pen(struct goodix_pen_data *pen_data, u8 *buf,
+			     int touch_num)
 {
 	unsigned int id = 0;
 	static u8 pre_key_map;
@@ -1012,7 +1001,7 @@ static void goodix_parse_pen(struct goodix_pen_data *pen_data,
 	if (touch_num) {
 		pen_data->coords.status = TS_TOUCH;
 		coor_data = &buf[IRQ_EVENT_HEAD_LEN +
-				BYTES_PER_POINT *(touch_num -1)];
+				 BYTES_PER_POINT * (touch_num - 1)];
 
 		id = (coor_data[0] >> 4) & 0x0F;
 		pen_data->coords.x = le16_to_cpup((__le16 *)(coor_data + 2));
@@ -1040,8 +1029,8 @@ static void goodix_parse_pen(struct goodix_pen_data *pen_data,
 }
 
 static int goodix_touch_handler(struct goodix_ts_core *cd,
-				struct goodix_ts_event *ts_event,
-				u8 *pre_buf, u32 pre_buf_len)
+				struct goodix_ts_event *ts_event, u8 *pre_buf,
+				u32 pre_buf_len)
 {
 	struct goodix_ts_hw_ops *hw_ops = cd->hw_ops;
 	struct goodix_ic_info_misc *misc = &cd->ic_info.misc;
@@ -1068,10 +1057,9 @@ static int goodix_touch_handler(struct goodix_ts_core *cd,
 		return -EINVAL;
 	}
 	if (unlikely(touch_num > 1)) {
-		ret = hw_ops->read(cd,
-				misc->touch_data_addr + pre_buf_len,
-				&buffer[pre_buf_len],
-				(touch_num - 1) * BYTES_PER_POINT);
+		ret = hw_ops->read(cd, misc->touch_data_addr + pre_buf_len,
+				   &buffer[pre_buf_len],
+				   (touch_num - 1) * BYTES_PER_POINT);
 		if (ret) {
 			ts_debug("failed get touch data");
 			return ret;
@@ -1079,19 +1067,20 @@ static int goodix_touch_handler(struct goodix_ts_core *cd,
 	}
 
 	if (touch_num && checksum_cmp(&buffer[IRQ_EVENT_HEAD_LEN],
-				touch_num * BYTES_PER_POINT + 2,
-				CHECKSUM_MODE_U8_LE)) {
+				      touch_num * BYTES_PER_POINT + 2,
+				      CHECKSUM_MODE_U8_LE)) {
 		ts_debug("touch data checksum error");
 		ts_debug("data:%*ph", touch_num * BYTES_PER_POINT + 2,
-				&buffer[IRQ_EVENT_HEAD_LEN]);
+			 &buffer[IRQ_EVENT_HEAD_LEN]);
 		return -EINVAL;
 	}
 
 	if (touch_num > 0)
 		point_type = buffer[(touch_num - 1) * BYTES_PER_POINT +
-					IRQ_EVENT_HEAD_LEN] & 0x0F;
-	if (touch_num > 0 && (point_type == POINT_TYPE_STYLUS
-				|| point_type == POINT_TYPE_STYLUS_HOVER)) {
+				    IRQ_EVENT_HEAD_LEN] &
+			     0x0F;
+	if (touch_num > 0 && (point_type == POINT_TYPE_STYLUS ||
+			      point_type == POINT_TYPE_STYLUS_HOVER)) {
 		/* stylus info */
 		if (pre_finger_num) {
 			ts_event->event_type = EVENT_TOUCH;
@@ -1110,8 +1099,7 @@ static int goodix_touch_handler(struct goodix_ts_core *cd,
 			pre_pen_num = 0;
 		} else {
 			ts_event->event_type = EVENT_TOUCH;
-			goodix_parse_finger(touch_data,
-						buffer, touch_num);
+			goodix_parse_finger(touch_data, buffer, touch_num);
 			pre_finger_num = touch_num;
 		}
 	}
@@ -1124,7 +1112,7 @@ static int goodix_touch_handler(struct goodix_ts_core *cd,
 }
 
 static int brl_event_handler(struct goodix_ts_core *cd,
-			struct goodix_ts_event *ts_event)
+			     struct goodix_ts_event *ts_event)
 {
 	struct goodix_ts_hw_ops *hw_ops = cd->hw_ops;
 	struct goodix_ic_info_misc *misc = &cd->ic_info.misc;
@@ -1134,10 +1122,9 @@ static int brl_event_handler(struct goodix_ts_core *cd,
 	u8 pre_buf[32];
 	u8 event_status;
 
-	pre_read_len = IRQ_EVENT_HEAD_LEN +
-		BYTES_PER_POINT + COOR_DATA_CHECKSUM_SIZE;
-	ret = hw_ops->read(cd, misc->touch_data_addr,
-				pre_buf, pre_read_len);
+	pre_read_len =
+		IRQ_EVENT_HEAD_LEN + BYTES_PER_POINT + COOR_DATA_CHECKSUM_SIZE;
+	ret = hw_ops->read(cd, misc->touch_data_addr, pre_buf, pre_read_len);
 
 	if (ret) {
 		ts_debug("failed get event head data");
@@ -1152,14 +1139,15 @@ static int brl_event_handler(struct goodix_ts_core *cd,
 	if (cd->palm_status) {
 		update_palm_sensor_value(!!(pre_buf[2] & 0x10));
 		if (palm_status != (pre_buf[2] & 0x10)) {
-			ts_info("palm sensor report, %d", !!(pre_buf[2] & 0x10));
+			ts_info("palm sensor report, %d",
+				!!(pre_buf[2] & 0x10));
 			palm_status = (pre_buf[2] & 0x10);
 		}
 	}
 
 	if (event_status & GOODIX_TOUCH_EVENT)
-		return goodix_touch_handler(cd, ts_event,
-						pre_buf, pre_read_len);
+		return goodix_touch_handler(cd, ts_event, pre_buf,
+					    pre_read_len);
 
 	if (event_status & GOODIX_REQUEST_EVENT) {
 		ts_event->event_type = EVENT_REQUEST;
@@ -1183,14 +1171,13 @@ static int brl_after_event_handler(struct goodix_ts_core *cd)
 	struct goodix_ic_info_misc *misc = &cd->ic_info.misc;
 	u8 sync_clean = 0;
 
-	return hw_ops->write(cd, misc->touch_data_addr,
-		&sync_clean, 1);
+	return hw_ops->write(cd, misc->touch_data_addr, &sync_clean, 1);
 }
 
-#define GOODIX_CMD_RAWDATA	2
-#define GOODIX_CMD_COORD	0
+#define GOODIX_CMD_RAWDATA 2
+#define GOODIX_CMD_COORD 0
 static int brl_get_capacitance_data(struct goodix_ts_core *cd,
-									struct ts_rawdata_info *info)
+				    struct ts_rawdata_info *info)
 {
 	int ret;
 	int retry = 20;
@@ -1248,7 +1235,7 @@ static int brl_get_capacitance_data(struct goodix_ts_core *cd,
 	info->used_size = 2;
 
 	ret = brl_read(cd, raw_addr, (u8 *)&info->buff[info->used_size],
-			size * sizeof(s16));
+		       size * sizeof(s16));
 	if (ret < 0) {
 		ts_err("obtian raw_data failed, exit!");
 		goto exit;
@@ -1257,7 +1244,7 @@ static int brl_get_capacitance_data(struct goodix_ts_core *cd,
 	info->used_size += size;
 
 	ret = brl_read(cd, diff_addr, (u8 *)&info->buff[info->used_size],
-			size * sizeof(s16));
+		       size * sizeof(s16));
 	if (ret < 0) {
 		ts_err("obtian diff_data failed, exit!");
 		goto exit;
@@ -1266,7 +1253,7 @@ static int brl_get_capacitance_data(struct goodix_ts_core *cd,
 	info->used_size += size;
 	/* obtain ref_rawdata */
 	ret = brl_read(cd, ref_addr, (u8 *)&info->buff[info->used_size],
-			size * sizeof(s16));
+		       size * sizeof(s16));
 	if (ret < 0) {
 		ts_err("obtian ref_addr failed, exit!");
 		goto exit;
@@ -1288,8 +1275,8 @@ exit:
 	return ret;
 }
 
-#define GOODIX_CHARGER_ON	0x10
-#define GOODIX_CHARGER_OFF	0x11
+#define GOODIX_CHARGER_ON 0x10
+#define GOODIX_CHARGER_OFF 0x11
 static int brl_charger_on(struct goodix_ts_core *cd, bool on)
 {
 	struct goodix_ts_cmd cmd;
@@ -1312,7 +1299,7 @@ static int brl_charger_on(struct goodix_ts_core *cd, bool on)
 	return 0;
 }
 
-#define GOODIX_PALM_CMD		0x70
+#define GOODIX_PALM_CMD 0x70
 static int brl_palm_on(struct goodix_ts_core *cd, bool on)
 {
 	struct goodix_ts_cmd cmd;
@@ -1333,7 +1320,7 @@ static int brl_palm_on(struct goodix_ts_core *cd, bool on)
 }
 
 #ifdef GOODIX_XIAOMI_TOUCHFEATURE
-#define GOODIX_GAME_CMD		0x17
+#define GOODIX_GAME_CMD 0x17
 static int brl_game(struct goodix_ts_core *cd, u8 status, bool on)
 {
 	struct goodix_ts_cmd cmd;
@@ -1344,16 +1331,17 @@ static int brl_game(struct goodix_ts_core *cd, u8 status, bool on)
 	cmd.data[1] = (on == true) ? 1 : 0;
 	/* ts_info("gesture data :%*ph", 8, cmd.buf); */
 	if (cd->hw_ops->send_cmd(cd, &cmd)) {
-		ts_err("failed send game cmd, game_data = 0x%x, on = %d", status, on);
+		ts_err("failed send game cmd, game_data = 0x%x, on = %d",
+		       status, on);
 		return -EINVAL;
 	} else {
-		ts_info("game data 0x%x, game mode %s", status, (on == true) ? "on" : "off");
+		ts_info("game data 0x%x, game mode %s", status,
+			(on == true) ? "on" : "off");
 	}
 
 	return 0;
 }
 #endif
-
 
 static struct goodix_ts_hw_ops brl_hw_ops = {
 	.power_on = brl_power_on,

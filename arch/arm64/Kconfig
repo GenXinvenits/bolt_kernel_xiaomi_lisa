@@ -35,32 +35,34 @@ config ARM64
 	select ARCH_HAS_TEARDOWN_DMA_OPS if IOMMU_SUPPORT
 	select ARCH_HAS_TICK_BROADCAST if GENERIC_CLOCKEVENTS_BROADCAST
 	select ARCH_HAVE_NMI_SAFE_CMPXCHG
-	select ARCH_INLINE_READ_LOCK if !PREEMPT
-	select ARCH_INLINE_READ_LOCK_BH if !PREEMPT
-	select ARCH_INLINE_READ_LOCK_IRQ if !PREEMPT
-	select ARCH_INLINE_READ_LOCK_IRQSAVE if !PREEMPT
-	select ARCH_INLINE_READ_UNLOCK if !PREEMPT
-	select ARCH_INLINE_READ_UNLOCK_BH if !PREEMPT
-	select ARCH_INLINE_READ_UNLOCK_IRQ if !PREEMPT
-	select ARCH_INLINE_READ_UNLOCK_IRQRESTORE if !PREEMPT
-	select ARCH_INLINE_WRITE_LOCK if !PREEMPT
-	select ARCH_INLINE_WRITE_LOCK_BH if !PREEMPT
-	select ARCH_INLINE_WRITE_LOCK_IRQ if !PREEMPT
-	select ARCH_INLINE_WRITE_LOCK_IRQSAVE if !PREEMPT
-	select ARCH_INLINE_WRITE_UNLOCK if !PREEMPT
-	select ARCH_INLINE_WRITE_UNLOCK_BH if !PREEMPT
-	select ARCH_INLINE_WRITE_UNLOCK_IRQ if !PREEMPT
-	select ARCH_INLINE_WRITE_UNLOCK_IRQRESTORE if !PREEMPT
-	select ARCH_INLINE_SPIN_TRYLOCK if !PREEMPT
-	select ARCH_INLINE_SPIN_TRYLOCK_BH if !PREEMPT
-	select ARCH_INLINE_SPIN_LOCK if !PREEMPT
-	select ARCH_INLINE_SPIN_LOCK_BH if !PREEMPT
-	select ARCH_INLINE_SPIN_LOCK_IRQ if !PREEMPT
-	select ARCH_INLINE_SPIN_LOCK_IRQSAVE if !PREEMPT
-	select ARCH_INLINE_SPIN_UNLOCK if !PREEMPT
-	select ARCH_INLINE_SPIN_UNLOCK_BH if !PREEMPT
-	select ARCH_INLINE_SPIN_UNLOCK_IRQ if !PREEMPT
-	select ARCH_INLINE_SPIN_UNLOCK_IRQRESTORE if !PREEMPT
+	select ARCH_INLINE_READ_TRYLOCK
+	select ARCH_INLINE_READ_LOCK
+	select ARCH_INLINE_READ_LOCK_BH
+	select ARCH_INLINE_READ_LOCK_IRQ
+	select ARCH_INLINE_READ_LOCK_IRQSAVE
+	select ARCH_INLINE_READ_UNLOCK
+	select ARCH_INLINE_READ_UNLOCK_BH
+	select ARCH_INLINE_READ_UNLOCK_IRQ
+	select ARCH_INLINE_READ_UNLOCK_IRQRESTORE
+	select ARCH_INLINE_WRITE_TRYLOCK
+	select ARCH_INLINE_WRITE_LOCK
+	select ARCH_INLINE_WRITE_LOCK_BH
+	select ARCH_INLINE_WRITE_LOCK_IRQ
+	select ARCH_INLINE_WRITE_LOCK_IRQSAVE
+	select ARCH_INLINE_WRITE_UNLOCK
+	select ARCH_INLINE_WRITE_UNLOCK_BH
+	select ARCH_INLINE_WRITE_UNLOCK_IRQ
+	select ARCH_INLINE_WRITE_UNLOCK_IRQRESTORE
+	select ARCH_INLINE_SPIN_TRYLOCK
+	select ARCH_INLINE_SPIN_TRYLOCK_BH
+	select ARCH_INLINE_SPIN_LOCK
+	select ARCH_INLINE_SPIN_LOCK_BH
+	select ARCH_INLINE_SPIN_LOCK_IRQ
+	select ARCH_INLINE_SPIN_LOCK_IRQSAVE
+	select ARCH_INLINE_SPIN_UNLOCK
+	select ARCH_INLINE_SPIN_UNLOCK_BH
+	select ARCH_INLINE_SPIN_UNLOCK_IRQ
+	select ARCH_INLINE_SPIN_UNLOCK_IRQRESTORE
 	select ARCH_KEEP_MEMBLOCK
 	select ARCH_USE_CMPXCHG_LOCKREF
 	select ARCH_USE_QUEUED_RWLOCKS
@@ -504,13 +506,16 @@ config ARM64_ERRATUM_843419
 
 	  If unsure, say Y.
 
+config ARM64_LD_HAS_FIX_ERRATUM_843419
+	def_bool $(ld-option,--fix-cortex-a53-843419)
+
 config ARM64_ERRATUM_1024718
 	bool "Cortex-A55: 1024718: Update of DBM/AP bits without break before make might result in incorrect update"
 	default y
 	help
 	  This option adds a workaround for ARM Cortex-A55 Erratum 1024718.
 
-	  Affected Cortex-A55 cores (r0p0, r0p1, r1p0) could cause incorrect
+	  Affected Cortex-A55 cores (all revisions) could cause incorrect
 	  update of the hardware dirty bit when the DBM/AP bits are updated
 	  without a break-before-make. The workaround is to disable the usage
 	  of hardware DBM locally on the affected cores. CPUs not affected by
@@ -907,6 +912,27 @@ config NR_CPUS
 	range 2 4096
 	default "256"
 
+config LITTLE_CPU_MASK
+	int "Bitmask of available LITTLE CPUs"
+	help
+	  This is a bitmask specifying which of the CPUs are LITTLE in a
+	  heterogeneous system. Use 0 if you are unsure, which just results in
+	  this storing the bitmask of all available CPUs.
+
+config BIG_CPU_MASK
+	int "Bitmask of available big CPUs"
+	help
+	  This is a bitmask specifying which of the CPUs are big in a
+	  heterogeneous system. Use 0 if you are unsure, which just results in
+	  this storing the bitmask of all available CPUs.
+
+config PRIME_CPU_MASK
+	int "Bitmask of available prime CPUs"
+	help
+	  This is a bitmask specifying which of the CPUs are prime in a
+	  heterogeneous system. Use 0 if you are unsure, which just results in
+	  this storing the bitmask of all available CPUs.
+
 config HOTPLUG_CPU
 	bool "Support for hot-pluggable CPUs"
 	select GENERIC_IRQ_MIGRATION
@@ -1197,6 +1223,15 @@ config ARM64_SSBD
 
 	  If unsure, say Y.
 
+config MITIGATE_SPECTRE_BRANCH_HISTORY
+	bool "Mitigate Spectre style attacks against branch history" if EXPERT
+	default y
+	help
+	  Speculation attacks against some high-performance processors can
+	  make use of branch history to influence future speculation.
+	  When taking an exception from user-space, a sequence of branches
+	  or a firmware call overwrites the branch history.
+
 config RODATA_FULL_DEFAULT_ENABLED
 	bool "Apply r/o permissions of VM areas also to their linear aliases"
 	default y
@@ -1288,6 +1323,14 @@ config COMPAT_VDSO
 
 	  You must have a 32-bit build of glibc 2.22 or later for programs
 	  to seamlessly take advantage of this.
+
+config THUMB2_COMPAT_VDSO
+	bool "Compile the 32-bit vDSO for Thumb-2 mode" if EXPERT
+	depends on COMPAT_VDSO
+	default y
+	help
+	  Compile the compat vDSO with '-mthumb -fomit-frame-pointer' if y,
+	  otherwise with '-marm'.
 
 menuconfig ARMV8_DEPRECATED
 	bool "Emulate deprecated/obsolete ARMv8 instructions"
@@ -1793,6 +1836,14 @@ config BUILD_ARM64_DT_OVERLAY
 	  required flags to add DT overlay in the
 	  compilation.
 
+config TLB_CONF_HANDLER
+	bool "enable handler for TLB conflict"
+	help
+	  This option enables graceful handling of TLB
+	  conflict in EL2. Say yes here to enable TLB
+	  conflict handler.
+	  If unsure, Say n.
+
 config SYSVIPC_COMPAT
 	def_bool y
 	depends on COMPAT && SYSVIPC
@@ -1835,10 +1886,3 @@ source "arch/arm64/kvm/Kconfig"
 if CRYPTO
 source "arch/arm64/crypto/Kconfig"
 endif
-
-config FACTORY_BUILD
-	bool "distiguish factory version from dev version"
-	default n
-	help
-	  This macro will be defined when build factory version. It is used to
-	  distinguish factory and dev codes in kernel.

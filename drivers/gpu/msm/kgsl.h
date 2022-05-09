@@ -1,17 +1,16 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2008-2021, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  */
 #ifndef __KGSL_H
 #define __KGSL_H
 
+#include <uapi/linux/msm_kgsl.h>
 #include <linux/cdev.h>
 #include <linux/compat.h>
 #include <linux/interrupt.h>
 #include <linux/kthread.h>
 #include <linux/mm.h>
-#include <linux/msm_kgsl.h>
 #include <linux/uaccess.h>
 
 #include "kgsl_gmu_core.h"
@@ -212,7 +211,7 @@ struct kgsl_memdesc {
 	unsigned long attrs;
 	struct page **pages;
 	unsigned int page_count;
-#if IS_ENABLED(CONFIG_MIMISC_MC)
+#ifdef CONFIG_MIMISC_MC
 	struct page memgroup;
 #endif
 	/*
@@ -271,11 +270,6 @@ struct kgsl_mem_entry {
 	int pending_free;
 	char metadata[KGSL_GPUOBJ_ALLOC_METADATA_MAX + 1];
 	struct work_struct work;
-	/**
-	 * @mapped: The number of bytes in this entry that are mapped to
-	 * userspace
-	 */
-	u64 mapped;
 	/**
 	 * @map_count: Count how many vmas this object is mapped in - used for
 	 * debugfs accounting
@@ -338,48 +332,6 @@ struct kgsl_event_group {
 	char name[64];
 	readtimestamp_func readtimestamp;
 	void *priv;
-};
-
-/**
- * struct submission_info - Container for submission statistics
- * @inflight: Number of commands that are inflight
- * @rb_id: id of the ringbuffer to which this submission is made
- * @rptr: Read pointer of the ringbuffer
- * @wptr: Write pointer of the ringbuffer
- * @gmu_dispatch_queue: GMU dispach queue to which this submission is made
- */
-struct submission_info {
-	int inflight;
-	u32 rb_id;
-	u32 rptr;
-	u32 wptr;
-	u32 gmu_dispatch_queue;
-};
-
-/**
- * struct retire_info - Container for retire statistics
- * @inflight: NUmber of commands that are inflight
- * @rb_id: id of the ringbuffer to which this submission is made
- * @rptr: Read pointer of the ringbuffer
- * @wptr: Write pointer of the ringbuffer
- * @gmu_dispatch_queue: GMU dispach queue to which this submission is made
- * @timestamp: Timestamp of submission that retired
- * @submitted_to_rb: AO ticks when GMU put this submission on ringbuffer
- * @sop: AO ticks when GPU started procssing this submission
- * @eop: AO ticks when GPU finished this submission
- * @retired_on_gmu: AO ticks when GMU retired this submission
- */
-struct retire_info {
-	int inflight;
-	int rb_id;
-	u32 rptr;
-	u32 wptr;
-	u32 gmu_dispatch_queue;
-	u32 timestamp;
-	u64 submitted_to_rb;
-	u64 sop;
-	u64 eop;
-	u64 retired_on_gmu;
 };
 
 long kgsl_ioctl_device_getproperty(struct kgsl_device_private *dev_priv,
@@ -456,6 +408,8 @@ void kgsl_mem_entry_destroy(struct kref *kref);
 
 void kgsl_get_egl_counts(struct kgsl_mem_entry *entry,
 			int *egl_surface_count, int *egl_image_count);
+
+unsigned long kgsl_get_dmabuf_inode_number(struct kgsl_mem_entry *entry);
 
 struct kgsl_mem_entry * __must_check
 kgsl_sharedmem_find(struct kgsl_process_private *private, uint64_t gpuaddr);
@@ -567,6 +521,16 @@ kgsl_mem_entry_put(struct kgsl_mem_entry *entry)
 	if (entry)
 		kref_put(&entry->refcount, kgsl_mem_entry_destroy);
 }
+
+/**
+ * kgsl_mem_entry_put_deferred() - Puts refcount and triggers deferred
+ * mem_entry destroy when refcount is the last refcount.
+ * @entry: memory entry to be put.
+ *
+ * Use this to put a memory entry when we don't want to block
+ * the caller while destroying memory entry.
+ */
+void kgsl_mem_entry_put_deferred(struct kgsl_mem_entry *entry);
 
 /*
  * kgsl_addr_range_overlap() - Checks if 2 ranges overlap

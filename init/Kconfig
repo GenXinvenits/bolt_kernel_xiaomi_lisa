@@ -96,8 +96,7 @@ config INIT_ENV_ARG_LIMIT
 
 config COMPILE_TEST
 	bool "Compile also drivers which will not load"
-	depends on !UML
-	default n
+	depends on HAS_IOMEM
 	help
 	  Some drivers can be compiled on a different platform than they are
 	  intended to be run on. Despite they cannot be loaded there (or even
@@ -118,6 +117,20 @@ config UAPI_HEADER_TEST
 
 	  If you are a developer or tester and want to ensure the exported
 	  headers are self-contained, say Y here. Otherwise, choose N.
+
+config WERROR
+	bool "Compile the kernel with warnings as errors"
+	default COMPILE_TEST
+	help
+	  A kernel build should not cause any compiler warnings, and this
+	  enables the '-Werror' flag to enforce that rule by default.
+
+	  However, if you have a new (or very old) compiler with odd and
+	  unusual warnings, or you have some architecture with problems,
+	  you may need to disable this config option in order to
+	  successfully build the kernel.
+
+	  If in doubt, say Y.
 
 config LOCALVERSION
 	string "Local version - append to kernel release"
@@ -455,6 +468,25 @@ config HAVE_SCHED_AVG_IRQ
 	depends on IRQ_TIME_ACCOUNTING || PARAVIRT_TIME_ACCOUNTING
 	depends on SMP
 
+config SCHED_THERMAL_PRESSURE
+	bool
+	default y if ARM && ARM_CPU_TOPOLOGY
+	default y if ARM64
+	depends on SMP
+	depends on CPU_FREQ_THERMAL
+	help
+	  Select this option to enable thermal pressure accounting in the
+	  scheduler. Thermal pressure is the value conveyed to the scheduler
+	  that reflects the reduction in CPU compute capacity resulted from
+	  thermal throttling. Thermal throttling occurs when the performance of
+	  a CPU is capped due to high operating temperatures.
+
+	  If selected, the scheduler will be able to balance tasks accordingly,
+	  i.e. put less load on throttled CPUs than on non/less throttled ones.
+
+	  This requires the architecture to implement
+	  arch_set_thermal_pressure() and arch_get_thermal_pressure().
+
 config SCHED_WALT
 	bool "Support window based load tracking"
 	depends on SMP
@@ -463,12 +495,6 @@ config SCHED_WALT
 	based set of metrics for tasks and runqueues. These metrics can be
 	used to guide task placement as well as task frequency requirements
 	for cpufreq governors.
-
-config MIMISC_MC
-	bool "mi misc memory group"
-	default n
-	---help---
-	  Acct ion/gpu misc memory to memory cgroup
 
 config BSD_PROCESS_ACCT
 	bool "BSD Process Accounting"
@@ -1098,12 +1124,6 @@ config SOCK_CGROUP_DATA
 
 endif # CGROUPS
 
-config PERF_HUMANTASK
-	bool "enable feature humantask"
-	default n
-	help
-	  support switch on/off of sched humantask.
-
 menuconfig NAMESPACES
 	bool "Namespaces support" if EXPERT
 	depends on MULTIUSER
@@ -1271,7 +1291,6 @@ config CC_OPTIMIZE_FOR_PERFORMANCE
 
 config CC_OPTIMIZE_FOR_PERFORMANCE_O3
 	bool "Optimize more for performance (-O3)"
-	depends on ARC
 	help
 	  Choosing this option will pass "-O3" to your compiler to optimize
 	  the kernel yet more for performance.
@@ -1348,8 +1367,6 @@ config BPF
 
 menuconfig EXPERT
 	bool "Configure standard kernel features (expert users)"
-	# Unhide debug options, to make the on-by-default options visible
-	select DEBUG_KERNEL
 	help
 	  This option allows certain base kernel options and settings
           to be disabled or tweaked. This is for specialized
@@ -1667,6 +1684,16 @@ config BPF_JIT_ALWAYS_ON
 	help
 	  Enables BPF JIT and removes BPF interpreter to avoid
 	  speculative execution of BPF instructions by the interpreter
+
+config BPF_UNPRIV_DEFAULT_OFF
+	bool "Disable unprivileged BPF by default"
+	depends on BPF_SYSCALL
+	help
+	  Disables unprivileged BPF by default by setting the corresponding
+	  /proc/sys/kernel/unprivileged_bpf_disabled knob to 2. An admin can
+	  still reenable it by setting it to 0 later on, or permanently
+	  disable it by setting it to 1 (from which no other transition to
+	  0 is possible anymore).
 
 config USERFAULTFD
 	bool "Enable userfaultfd() system call"

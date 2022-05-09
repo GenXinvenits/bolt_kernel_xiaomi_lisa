@@ -448,12 +448,12 @@ static void exit_mm(void)
 	 * will increment ->nr_threads for each thread in the
 	 * group with ->mm != NULL.
 	 */
-	down_read(&mm->mmap_sem);
+	mmap_read_lock(mm);
 	core_state = mm->core_state;
 	if (core_state) {
 		struct core_thread self;
 
-		up_read(&mm->mmap_sem);
+		mmap_read_unlock(mm);
 
 		self.task = current;
 		if (self.task->flags & PF_SIGNALED)
@@ -474,20 +474,24 @@ static void exit_mm(void)
 			freezable_schedule();
 		}
 		__set_current_state(TASK_RUNNING);
-		down_read(&mm->mmap_sem);
+		mmap_read_lock(mm);
 	}
 	mmgrab(mm);
 	BUG_ON(mm != current->active_mm);
 	/* more a memory barrier than a real lock */
 	task_lock(current);
 	current->mm = NULL;
-	up_read(&mm->mmap_sem);
+	mmap_read_unlock(mm);
 	enter_lazy_tlb(mm, current);
 	task_unlock(current);
 	mm_update_next_owner(mm);
 	mmput(mm);
+#ifdef CONFIG_ANDROID_SIMPLE_LMK
+	clear_thread_flag(TIF_MEMDIE);
+#else
 	if (test_thread_flag(TIF_MEMDIE))
 		exit_oom_victim();
+#endif
 }
 
 static struct task_struct *find_alive_thread(struct task_struct *p)
@@ -711,7 +715,33 @@ static void check_stack_usage(void)
 static inline void check_stack_usage(void) {}
 #endif
 
-void __noreturn do_exit(long code)
+#ifndef CONFIG_PROFILING
+static BLOCKING_NOTIFIER_HEAD(task_exit_notifier);
+
+int profile_event_register(enum profile_type t, struct notifier_block *n)
+{
+	if (t == PROFILE_TASK_EXIT)
+		return blocking_notifier_chain_register(&task_exit_notifier, n);
+
+	return -ENOSYS;
+}
+
+int profile_event_unregister(enum profile_type t, struct notifier_block *n)
+{
+	if (t == PROFILE_TASK_EXIT)
+		return blocking_notifier_chain_unregister(&task_exit_notifier,
+							  n);
+
+	return -ENOSYS;
+}
+
+void profile_task_exit(struct task_struct *tsk)
+{
+	blocking_notifier_call_chain(&task_exit_notifier, 0, tsk);
+}
+#endif
+
+void do_exit(long code)
 {
 	struct task_struct *tsk = current;
 	int group_dead;

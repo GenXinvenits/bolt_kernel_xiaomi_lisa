@@ -6,7 +6,6 @@
  *  Note that kmalloc() lives in slab.c
  *
  *  Copyright (C) 1991, 1992, 1993, 1994  Linus Torvalds
- *  Copyright (C) 2021 XiaoMi, Inc.
  *  Swap reorganised 29.12.95, Stephen Tweedie
  *  Support of BIGMEM added by Gerhard Wichert, Siemens AG, July 1999
  *  Reshaped it to be a zoned allocator, Ingo Molnar, Red Hat, 1999
@@ -77,6 +76,8 @@
 #include <asm/div64.h>
 #include "internal.h"
 #include "shuffle.h"
+
+atomic_long_t kswapd_waiters = ATOMIC_LONG_INIT(0);
 
 /* prevent >1 _updater_ of zone percpu pageset ->high and ->batch fields */
 static DEFINE_MUTEX(pcp_batch_high_lock);
@@ -323,20 +324,7 @@ compound_page_dtor * const compound_page_dtors[] = {
  */
 int min_free_kbytes = 1024;
 int user_min_free_kbytes = -1;
-#ifdef CONFIG_DISCONTIGMEM
-/*
- * DiscontigMem defines memory ranges as separate pg_data_t even if the ranges
- * are not on separate NUMA nodes. Functionally this works but with
- * watermark_boost_factor, it can reclaim prematurely as the ranges can be
- * quite small. By default, do not boost watermarks on discontigmem as in
- * many cases very high-order allocations like THP are likely to be
- * unsupported and the premature reclaim offsets the advantage of long-term
- * fragmentation avoidance.
- */
 int watermark_boost_factor __read_mostly;
-#else
-int watermark_boost_factor __read_mostly = 15000;
-#endif
 int watermark_scale_factor = 10;
 
 /*
@@ -920,7 +908,7 @@ static inline void __free_one_page(struct page *page,
 	unsigned int max_order;
 	struct capture_control *capc = task_capc(zone);
 
-	max_order = min_t(unsigned int, MAX_ORDER, pageblock_order + 1);
+	max_order = min_t(unsigned int, MAX_ORDER - 1, pageblock_order);
 
 	VM_BUG_ON(!zone_is_initialized(zone));
 	VM_BUG_ON_PAGE(page->flags & PAGE_FLAGS_CHECK_AT_PREP, page);
@@ -933,7 +921,7 @@ static inline void __free_one_page(struct page *page,
 	VM_BUG_ON_PAGE(bad_range(zone, page), page);
 
 continue_merging:
-	while (order < max_order - 1) {
+	while (order < max_order) {
 		if (compaction_capture(capc, page, order, migratetype)) {
 			__mod_zone_freepage_state(zone, -(1 << order),
 								migratetype);
@@ -959,7 +947,7 @@ continue_merging:
 		pfn = combined_pfn;
 		order++;
 	}
-	if (max_order < MAX_ORDER) {
+	if (order < MAX_ORDER - 1) {
 		/* If we are here, it means order is >= pageblock_order.
 		 * We want to prevent merge between freepages on isolate
 		 * pageblock and normal pageblock. Without this, pageblock
@@ -980,7 +968,7 @@ continue_merging:
 						is_migrate_isolate(buddy_mt)))
 				goto done_merging;
 		}
-		max_order++;
+		max_order = order + 1;
 		goto continue_merging;
 	}
 
@@ -2339,8 +2327,12 @@ static void change_pageblock_range(struct page *pageblock_page,
  * is worse than movable allocations stealing from unmovable and reclaimable
  * pageblocks.
  */
-static bool can_steal_fallback(unsigned int order, int start_mt, int fallback_type,
-								unsigned int start_order)
+#ifndef CONFIG_MACH_XIAOMI
+static bool can_steal_fallback(unsigned int order, int start_mt)
+#else
+static bool can_steal_fallback(unsigned int order, int start_mt,
+				int fallback_type, unsigned int start_order)
+#endif
 {
 	/*
 	 * Leaving this order check is intended, although there is
@@ -2352,15 +2344,26 @@ static bool can_steal_fallback(unsigned int order, int start_mt, int fallback_ty
 	if (order >= pageblock_order)
 		return true;
 
-	/* don't let unmovable allocations cause migrations simply because of free pages */
-	if ((start_mt != MIGRATE_UNMOVABLE && order >= pageblock_order / 2) ||
-	/* only steal reclaimable page blocks for unmovable allocations */
-	(start_mt == MIGRATE_UNMOVABLE && fallback_type != MIGRATE_MOVABLE && order >= pageblock_order / 2) ||
-	/* reclaimable can steal aggressively */
-	start_mt == MIGRATE_RECLAIMABLE ||
-	/* allow unmovable allocs up to 64K without migrating blocks */
-	(start_mt == MIGRATE_UNMOVABLE && start_order >= 5) ||
-	page_group_by_mobility_disabled)
+#ifndef CONFIG_MACH_XIAOMI
+	if (order >= pageblock_order / 2 ||
+		start_mt == MIGRATE_RECLAIMABLE ||
+		start_mt == MIGRATE_UNMOVABLE ||
+		page_group_by_mobility_disabled)
+#else
+	// don't let unmovable allocations cause migrations simply because of free pages
+	if ((start_mt != MIGRATE_UNMOVABLE &&
+		order >= pageblock_order / 2) ||
+	// only steal reclaimable page blocks for unmovable allocations
+		(start_mt == MIGRATE_UNMOVABLE &&
+		fallback_type != MIGRATE_MOVABLE &&
+		order >= pageblock_order / 2) ||
+	// reclaimable can steal aggressively
+		start_mt == MIGRATE_RECLAIMABLE ||
+	// allow unmovable allocs up to 64K without migrating blocks
+		(start_mt == MIGRATE_UNMOVABLE &&
+		start_order >= 5) ||
+		page_group_by_mobility_disabled)
+#endif
 		return true;
 
 	return false;
@@ -2522,8 +2525,14 @@ single_page:
  * we can steal other freepages all together. This would help to reduce
  * fragmentation due to mixed migratetype pages in one pageblock.
  */
+#ifndef CONFIG_MACH_XIAOMI
 int find_suitable_fallback(struct free_area *area, unsigned int order,
-			int migratetype, bool only_stealable, bool *can_steal, unsigned int start_order)
+			int migratetype, bool only_stealable, bool *can_steal)
+#else
+int find_suitable_fallback(struct free_area *area, unsigned int order,
+			int migratetype, bool only_stealable, bool *can_steal,
+			unsigned int start_order)
+#endif
 {
 	int i;
 	int fallback_mt;
@@ -2540,7 +2549,11 @@ int find_suitable_fallback(struct free_area *area, unsigned int order,
 		if (free_area_empty(area, fallback_mt))
 			continue;
 
+#ifndef CONFIG_MACH_XIAOMI
+		if (can_steal_fallback(order, migratetype))
+#else
 		if (can_steal_fallback(order, migratetype, fallback_mt, start_order))
+#endif
 			*can_steal = true;
 
 		if (!only_stealable)
@@ -2708,8 +2721,13 @@ __rmqueue_fallback(struct zone *zone, int order, int start_migratetype,
 	for (current_order = MAX_ORDER - 1; current_order >= min_order;
 				--current_order) {
 		area = &(zone->free_area[current_order]);
+#ifndef CONFIG_MACH_XIAOMI
+		fallback_mt = find_suitable_fallback(area, current_order,
+				start_migratetype, false, &can_steal);
+#else
 		fallback_mt = find_suitable_fallback(area, current_order,
 				start_migratetype, false, &can_steal, order);
+#endif
 		if (fallback_mt == -1)
 			continue;
 
@@ -2734,8 +2752,13 @@ find_smallest:
 	for (current_order = order; current_order < MAX_ORDER;
 							current_order++) {
 		area = &(zone->free_area[current_order]);
+#ifndef CONFIG_MACH_XIAOMI
+		fallback_mt = find_suitable_fallback(area, current_order,
+				start_migratetype, false, &can_steal);
+#else
 		fallback_mt = find_suitable_fallback(area, current_order,
 				start_migratetype, false, &can_steal, order);
+#endif
 		if (fallback_mt != -1)
 			break;
 	}
@@ -3909,7 +3932,9 @@ void warn_alloc(gfp_t gfp_mask, nodemask_t *nodemask, const char *fmt, ...)
 	va_list args;
 	static DEFINE_RATELIMIT_STATE(nopage_rs, 10*HZ, 1);
 
-	if ((gfp_mask & __GFP_NOWARN) || !__ratelimit(&nopage_rs))
+	if ((gfp_mask & __GFP_NOWARN) ||
+	     !__ratelimit(&nopage_rs) ||
+	     ((gfp_mask & __GFP_DMA) && !has_managed_dma()))
 		return;
 
 	va_start(args, fmt);
@@ -4572,6 +4597,8 @@ __alloc_pages_slowpath(gfp_t gfp_mask, unsigned int order,
 	int no_progress_loops;
 	unsigned int cpuset_mems_cookie;
 	int reserve_flags;
+	bool woke_kswapd = false;
+	bool used_vmpressure = false;
 
 	/*
 	 * We also sanity check to catch abuse of atomic reserves being used by
@@ -4605,8 +4632,15 @@ retry_cpuset:
 	if (!ac->preferred_zoneref->zone)
 		goto nopage;
 
-	if (alloc_flags & ALLOC_KSWAPD)
+	if (alloc_flags & ALLOC_KSWAPD) {
+		if (!woke_kswapd) {
+			atomic_long_inc(&kswapd_waiters);
+			woke_kswapd = true;
+		}
+		if (!used_vmpressure)
+			used_vmpressure = vmpressure_inc_users(order);
 		wake_all_kswapds(order, gfp_mask, ac);
+	}
 
 	/*
 	 * The adjusted alloc_flags might result in immediate success, so try
@@ -4723,6 +4757,8 @@ retry:
 		goto nopage;
 
 	/* Try direct reclaim and then allocating */
+	if (!used_vmpressure)
+		used_vmpressure = vmpressure_inc_users(order);
 	page = __alloc_pages_direct_reclaim(gfp_mask, order, alloc_flags, ac,
 							&did_some_progress);
 	if (page)
@@ -4774,8 +4810,10 @@ retry:
 	/* Avoid allocations with no watermarks from looping endlessly */
 	if (tsk_is_oom_victim(current) &&
 	    (alloc_flags == ALLOC_OOM ||
-	     (gfp_mask & __GFP_NOMEMALLOC)))
+	     (gfp_mask & __GFP_NOMEMALLOC))) {
+		gfp_mask |= __GFP_NOWARN;
 		goto nopage;
+	}
 
 	/* Retry as long as the OOM killer is making progress */
 	if (did_some_progress) {
@@ -4829,9 +4867,14 @@ nopage:
 		goto retry;
 	}
 fail:
-	warn_alloc(gfp_mask, ac->nodemask,
-			"page allocation failure: order:%u", order);
 got_pg:
+	if (woke_kswapd)
+		atomic_long_dec(&kswapd_waiters);
+	if (used_vmpressure)
+		vmpressure_dec_users();
+	if (!page)
+		warn_alloc(gfp_mask, ac->nodemask,
+				"page allocation failure: order:%u", order);
 	return page;
 }
 
@@ -5633,7 +5676,7 @@ static int build_zonerefs_node(pg_data_t *pgdat, struct zoneref *zonerefs)
 	do {
 		zone_type--;
 		zone = pgdat->node_zones + zone_type;
-		if (managed_zone(zone)) {
+		if (populated_zone(zone)) {
 			zoneref_set_zone(zone, &zonerefs[nr_zones++]);
 			check_highest_zone(zone_type);
 		}
@@ -7484,9 +7527,16 @@ restart:
 
 out2:
 	/* Align start of ZONE_MOVABLE on all nids to MAX_ORDER_NR_PAGES */
-	for (nid = 0; nid < MAX_NUMNODES; nid++)
+	for (nid = 0; nid < MAX_NUMNODES; nid++) {
+		unsigned long start_pfn, end_pfn;
+
 		zone_movable_pfn[nid] =
 			roundup(zone_movable_pfn[nid], MAX_ORDER_NR_PAGES);
+
+		get_pfn_range_for_nid(nid, &start_pfn, &end_pfn);
+		if (zone_movable_pfn[nid] >= end_pfn)
+			zone_movable_pfn[nid] = 0;
+	}
 
 out:
 	/* restore the node_state */
@@ -8887,3 +8937,18 @@ bool set_hwpoison_free_buddy_page(struct page *page)
 	return hwpoisoned;
 }
 #endif
+
+#ifdef CONFIG_ZONE_DMA
+bool has_managed_dma(void)
+{
+	struct pglist_data *pgdat;
+
+	for_each_online_pgdat(pgdat) {
+		struct zone *zone = &pgdat->node_zones[ZONE_DMA];
+
+		if (managed_zone(zone))
+			return true;
+	}
+	return false;
+}
+#endif /* CONFIG_ZONE_DMA */

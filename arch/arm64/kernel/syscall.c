@@ -50,10 +50,7 @@ static void invoke_syscall(struct pt_regs *regs, unsigned int scno,
 		ret = do_ni_syscall(regs, scno);
 	}
 
-	if (is_compat_task())
-		ret = lower_32_bits(ret);
-
-	regs->regs[0] = ret;
+	syscall_set_return_value(current, regs, 0, ret);
 }
 
 static inline bool has_syscall_work(unsigned long flags)
@@ -108,7 +105,7 @@ static void el0_svc_common(struct pt_regs *regs, int scno, int sc_nr,
 	if (has_syscall_work(flags)) {
 		/* set default errno for user-issued syscall(-1) */
 		if (scno == NO_SYSCALL)
-			regs->regs[0] = -ENOSYS;
+			syscall_set_return_value(current, regs, -ENOSYS, 0);
 		scno = syscall_trace_enter(regs);
 		if (scno == NO_SYSCALL)
 			goto trace_exit;
@@ -157,14 +154,14 @@ static inline void sve_user_discard(void)
 	sve_user_disable();
 }
 
-asmlinkage void el0_svc_handler(struct pt_regs *regs)
+void do_el0_svc(struct pt_regs *regs)
 {
 	sve_user_discard();
 	el0_svc_common(regs, regs->regs[8], __NR_syscalls, sys_call_table);
 }
 
 #ifdef CONFIG_COMPAT
-asmlinkage void el0_svc_compat_handler(struct pt_regs *regs)
+void do_el0_svc_compat(struct pt_regs *regs)
 {
 	el0_svc_common(regs, regs->regs[7], __NR_compat_syscalls,
 		       compat_sys_call_table);

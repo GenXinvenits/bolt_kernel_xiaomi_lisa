@@ -62,6 +62,7 @@ static int ion_alloc_fd(size_t len, unsigned int heap_id_mask,
 	return fd;
 }
 
+#ifdef CONFIG_MACH_XIAOMI
 static int ion_alloc_fd_with_caller_pid(size_t len, unsigned int heap_id_mask,
                         unsigned int flags, int pid_info)
 {
@@ -78,6 +79,7 @@ static int ion_alloc_fd_with_caller_pid(size_t len, unsigned int heap_id_mask,
 
         return fd;
 }
+#endif
 
 size_t ion_query_heaps_kernel(struct ion_heap_data *hdata, size_t size)
 {
@@ -208,16 +210,20 @@ static long ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	{
 		int fd;
 
+#ifdef CONFIG_MACH_XIAOMI
 		if (data.allocation.unused > 0) {
 			fd = ion_alloc_fd_with_caller_pid(
 				data.allocation.len,
 				data.allocation.heap_id_mask,
 				data.allocation.flags, data.allocation.unused);
 		} else {
-			fd = ion_alloc_fd(data.allocation.len,
-					  data.allocation.heap_id_mask,
-					  data.allocation.flags);
+#endif
+		fd = ion_alloc_fd(data.allocation.len,
+				  data.allocation.heap_id_mask,
+				  data.allocation.flags);
+#ifdef CONFIG_MACH_XIAOMI
 		}
+#endif
 
 		if (fd < 0)
 			return fd;

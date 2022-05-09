@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "adreno.h"
@@ -27,6 +28,8 @@ static void _update_wptr(struct adreno_device *adreno_dev, bool reset_timer)
 	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
 	struct adreno_ringbuffer *rb = adreno_dev->cur_rb;
 	unsigned long flags;
+	bool write = false;
+	unsigned int val;
 	int ret = 0;
 
 	spin_lock_irqsave(&rb->preempt_lock, flags);
@@ -38,9 +41,8 @@ static void _update_wptr(struct adreno_device *adreno_dev, bool reset_timer)
 		 */
 		if (rb->skip_inline_wptr) {
 
-			ret = adreno_gmu_fenced_write(adreno_dev,
-				ADRENO_REG_CP_RB_WPTR, rb->wptr,
-				FENCE_STATUS_WRITEDROPPED0_MASK);
+			write = true;
+			val = rb->wptr;
 
 			reset_timer = true;
 			rb->skip_inline_wptr = false;
@@ -60,6 +62,10 @@ static void _update_wptr(struct adreno_device *adreno_dev, bool reset_timer)
 			msecs_to_jiffies(adreno_drawobj_timeout);
 
 	spin_unlock_irqrestore(&rb->preempt_lock, flags);
+
+	if (write)
+		ret = adreno_gmu_fenced_write(adreno_dev, ADRENO_REG_CP_RB_WPTR,
+			val, FENCE_STATUS_WRITEDROPPED0_MASK);
 
 	if (in_interrupt() == 0) {
 		/* If WPTR update fails, set the fault and trigger recovery */
@@ -543,13 +549,24 @@ unsigned int a6xx_preemption_pre_ibsubmit(
 	if (context) {
 		struct adreno_context *drawctxt = ADRENO_CONTEXT(context);
 		struct adreno_ringbuffer *rb = drawctxt->rb;
-		uint64_t dest = adreno_dev->preempt.scratch->gpuaddr
-			+ (rb->id * sizeof(u64));
+		uint64_t dest = PREEMPT_SCRATCH_ADDR(adreno_dev, rb->id);
 
 		*cmds++ = cp_mem_packet(adreno_dev, CP_MEM_WRITE, 2, 2);
 		cmds += cp_gpuaddr(adreno_dev, cmds, dest);
 		*cmds++ = lower_32_bits(gpuaddr);
 		*cmds++ = upper_32_bits(gpuaddr);
+
+		/* Add a KMD post amble to clear the perf counters during preemption */
+		if (!adreno_dev->perfcounter) {
+			u64 kmd_postamble_addr =
+					PREEMPT_SCRATCH_ADDR(adreno_dev, KMD_POSTAMBLE_IDX);
+
+			*cmds++ = cp_type7_packet(CP_SET_AMBLE, 3);
+			*cmds++ = lower_32_bits(kmd_postamble_addr);
+			*cmds++ = upper_32_bits(kmd_postamble_addr);
+			*cmds++ = FIELD_PREP(GENMASK(22, 20), CP_KMD_AMBLE_TYPE)
+				| (FIELD_PREP(GENMASK(19, 0), adreno_dev->preempt.postamble_len));
+		}
 	}
 
 	return (unsigned int) (cmds - cmds_orig);
@@ -562,8 +579,7 @@ unsigned int a6xx_preemption_post_ibsubmit(struct adreno_device *adreno_dev,
 	struct adreno_ringbuffer *rb = adreno_dev->cur_rb;
 
 	if (rb) {
-		uint64_t dest = adreno_dev->preempt.scratch->gpuaddr
-			+ (rb->id * sizeof(u64));
+		uint64_t dest = PREEMPT_SCRATCH_ADDR(adreno_dev, adreno_dev->cur_rb->id);
 
 		*cmds++ = cp_mem_packet(adreno_dev, CP_MEM_WRITE, 2, 2);
 		cmds += cp_gpuaddr(adreno_dev, cmds, dest);
@@ -720,6 +736,31 @@ int a6xx_preemption_init(struct adreno_device *adreno_dev)
 	ret = PTR_ERR_OR_ZERO(iommu->smmu_info);
 	if (ret)
 		return ret;
+
+	/*
+	 * First 8 dwords of the preemption scratch buffer is used to store the address for CP
+	 * to save/restore VPC data. Reserve 11 dwords in the preemption scratch buffer from
+	 * index KMD_POSTAMBLE_IDX for KMD postamble pm4 packets
+	 */
+	if (!adreno_dev->perfcounter) {
+		u32 *postamble = preempt->scratch->hostptr + (KMD_POSTAMBLE_IDX * sizeof(u64));
+		u32 count = 0;
+
+		postamble[count++] = cp_type7_packet(CP_REG_RMW, 3);
+		postamble[count++] = A6XX_RBBM_PERFCTR_SRAM_INIT_CMD;
+		postamble[count++] = 0x0;
+		postamble[count++] = 0x1;
+
+		postamble[count++] = cp_type7_packet(CP_WAIT_REG_MEM, 6);
+		postamble[count++] = 0x3;
+		postamble[count++] = A6XX_RBBM_PERFCTR_SRAM_INIT_STATUS;
+		postamble[count++] = 0x0;
+		postamble[count++] = 0x1;
+		postamble[count++] = 0x1;
+		postamble[count++] = 0x0;
+
+		preempt->postamble_len = count;
+	}
 
 	set_bit(ADRENO_DEVICE_PREEMPTION, &adreno_dev->priv);
 	return 0;

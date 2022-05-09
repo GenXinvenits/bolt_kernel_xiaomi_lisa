@@ -25,7 +25,9 @@
 
 #include "scsi_priv.h"
 #include "scsi_logging.h"
+#ifdef CONFIG_MACH_XIAOMI
 #include "ufs/ufshcd.h"
+#endif
 
 static struct device_type scsi_dev_type;
 
@@ -439,8 +441,11 @@ static void scsi_device_dev_release_usercontext(struct work_struct *work)
 	struct list_head *this, *tmp;
 	struct scsi_vpd *vpd_pg80 = NULL, *vpd_pg83 = NULL;
 	unsigned long flags;
+	struct module *mod;
 
 	sdev = container_of(work, struct scsi_device, ew.work);
+
+	mod = sdev->host->hostt->module;
 
 	scsi_dh_release_device(sdev);
 
@@ -482,11 +487,17 @@ static void scsi_device_dev_release_usercontext(struct work_struct *work)
 
 	if (parent)
 		put_device(parent);
+	module_put(mod);
 }
 
 static void scsi_device_dev_release(struct device *dev)
 {
 	struct scsi_device *sdp = to_scsi_device(dev);
+
+	/* Set module pointer as NULL in case of module unloading */
+	if (!try_module_get(sdp->host->hostt->module))
+		sdp->host->hostt->module = NULL;
+
 	execute_in_process_context(scsi_device_dev_release_usercontext,
 				   &sdp->ew);
 }
@@ -768,6 +779,7 @@ store_state_field(struct device *dev, struct device_attribute *attr,
 	int i, ret;
 	struct scsi_device *sdev = to_scsi_device(dev);
 	enum scsi_device_state state = 0;
+	bool rescan_dev = false;
 
 	for (i = 0; i < ARRAY_SIZE(sdev_states); i++) {
 		const int len = strlen(sdev_states[i].name);
@@ -786,14 +798,27 @@ store_state_field(struct device *dev, struct device_attribute *attr,
 	}
 
 	mutex_lock(&sdev->state_mutex);
-	ret = scsi_device_set_state(sdev, state);
-	/*
-	 * If the device state changes to SDEV_RUNNING, we need to run
-	 * the queue to avoid I/O hang.
-	 */
-	if (ret == 0 && state == SDEV_RUNNING)
-		blk_mq_run_hw_queues(sdev->request_queue, true);
+	if (sdev->sdev_state == SDEV_RUNNING && state == SDEV_RUNNING) {
+		ret = 0;
+	} else {
+		ret = scsi_device_set_state(sdev, state);
+		if (ret == 0 && state == SDEV_RUNNING)
+			rescan_dev = true;
+	}
 	mutex_unlock(&sdev->state_mutex);
+
+	if (rescan_dev) {
+		/*
+		 * If the device state changes to SDEV_RUNNING, we need to
+		 * run the queue to avoid I/O hang, and rescan the device
+		 * to revalidate it. Running the queue first is necessary
+		 * because another thread may be waiting inside
+		 * blk_mq_freeze_queue_wait() and because that call may be
+		 * waiting for pending I/O to finish.
+		 */
+		blk_mq_run_hw_queues(sdev->request_queue, true);
+		scsi_rescan_device(dev);
+	}
 
 	return ret == 0 ? count : -EINVAL;
 }
@@ -1168,6 +1193,52 @@ static DEVICE_ATTR(queue_ramp_up_period, S_IRUGO | S_IWUSR,
 		   sdev_show_queue_ramp_up_period,
 		   sdev_store_queue_ramp_up_period);
 
+#ifdef CONFIG_MACH_XIAOMI
+static ssize_t
+sdev_show_hr(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct scsi_device *sdev;
+	int i, n = 0;
+	int err = 0;
+	int len = 512; /*0x200*/
+	char *hr;
+
+	sdev = to_scsi_device(dev);
+	if (!sdev) {
+		pr_err("get sdev fail\n");
+		return n;
+	}
+
+	hr =  kzalloc(len, GFP_KERNEL);
+	if (!hr) {
+		pr_err("kzalloc fail\n");
+		return -ENOMEM;
+	}
+
+	if (!strncmp(sdev->vendor, "SKhynix", 7))
+		err = ufshcd_get_hynix_hr(sdev, hr, len);
+	else {
+		n += snprintf(buf,  PAGE_SIZE - n, "NOT SUPPORTED %s\n", sdev->vendor);
+		goto out;
+	}
+
+	if (err)
+		n += snprintf(buf,  PAGE_SIZE - n, "Fail to get hr, err is: %d\n", err);
+	else {
+		for (i = 0; i < 512; i++)
+			n += snprintf(buf + n, PAGE_SIZE - n, "%02x", hr[i]);
+
+		n += snprintf(buf + n, PAGE_SIZE - n, "\n");
+	}
+
+out:
+	kfree(hr);
+	return n;
+}
+
+static DEVICE_ATTR(hr, S_IRUGO | S_IWUSR, sdev_show_hr, NULL);
+#endif
+
 static umode_t scsi_sdev_attr_is_visible(struct kobject *kobj,
 					 struct attribute *attr, int i)
 {
@@ -1233,6 +1304,9 @@ static struct attribute *scsi_sdev_attrs[] = {
 	&dev_attr_queue_type.attr,
 	&dev_attr_wwid.attr,
 	&dev_attr_blacklist.attr,
+#ifdef CONFIG_MACH_XIAOMI
+	&dev_attr_hr.attr,
+#endif
 #ifdef CONFIG_SCSI_DH
 	&dev_attr_dh_state.attr,
 	&dev_attr_access_state.attr,

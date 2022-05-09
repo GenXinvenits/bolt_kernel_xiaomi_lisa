@@ -3,7 +3,6 @@
  * USB Type-C Connector System Software Interface driver
  *
  * Copyright (C) 2017, Intel Corporation
- * Copyright (C) 2021 XiaoMi, Inc.
  * Author: Heikki Krogerus <heikki.krogerus@linux.intel.com>
  */
 
@@ -17,11 +16,6 @@
 
 #include "ucsi.h"
 #include "trace.h"
-
-#undef dev_dbg
-#undef pr_debug
-#define pr_debug pr_err
-#define dev_dbg dev_err
 
 /*
  * UCSI_TIMEOUT_MS - PPM communication timeout
@@ -725,6 +719,13 @@ static int ucsi_dr_swap(struct typec_port *port, enum typec_data_role role)
 
 	mutex_lock(&con->lock);
 
+#ifndef CONFIG_MACH_XIAOMI
+	if (!con->partner) {
+		ret = -ENOTCONN;
+		goto out_unlock;
+	}
+#endif
+
 	partner_type = UCSI_CONSTAT_PARTNER_TYPE(con->status.flags);
 	if ((partner_type == UCSI_CONSTAT_PARTNER_TYPE_DFP &&
 	     role == TYPEC_DEVICE) ||
@@ -1009,6 +1010,7 @@ err_unregister:
 	}
 
 err_reset:
+	memset(&ucsi->cap, 0, sizeof(ucsi->cap));
 	ucsi_reset_ppm(ucsi);
 err:
 	mutex_unlock(&ucsi->ppm_lock);

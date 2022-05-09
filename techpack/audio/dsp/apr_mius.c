@@ -171,7 +171,6 @@ fail_cmd:
 	return ret;
 }
 
-
 int32_t mi_ultrasound_apr_set_parameter(int32_t port_id, uint32_t param_id,
 	u8 *user_params, int32_t length)
 {
@@ -186,7 +185,7 @@ int32_t mi_ultrasound_apr_set_parameter(int32_t port_id, uint32_t param_id,
 	if(param_id == MIUS_ULTRASOUND_UPLOAD_NONE) {
 #ifdef CONFIG_QGKI_SYSTEM
 		ret = (int32_t)us_afe_callback((const uint32_t)ups_event);
-		pr_info("[MIUS]: %s force reprot event %d ret %d\n", __func__, ups_event, ret);
+		pr_debug("[MIUS]: %s force reprot event %d ret %d\n", __func__, ups_event, ret);
 #endif
 		return ret;
 	}
@@ -196,263 +195,43 @@ int32_t mi_ultrasound_apr_set_parameter(int32_t port_id, uint32_t param_id,
 		(struct afe_mi_ultrasound_set_params_t *)user_params,
 		length);
 
-	pr_info("[MIUS]: %s param_id %x status %d\n", __func__, param_id, ret);
+	pr_debug("[MIUS]: %s param_id %x status %d\n", __func__, param_id, ret);
 
 	return ret;
 }
-
-#if 0
-static int32_t process_version_msg(uint32_t *payload, uint32_t payload_size)
-{
-	struct mius_shared_data_block *data_block = NULL;
-	size_t copy_size = 0;
-	int32_t  ret = -1;
-
-	pr_err("[MIUS]: %s() size:%d\n", __func__, payload_size);
-
-	if (payload_size >= MIUS_VERSION_INFO_SIZE) {
-		pr_debug("[MIUS]: mius_version copied to local AP cache");
-		data_block =
-		mius_get_shared_obj(
-			MIUS_OBJ_ID_VERSION_INFO);
-		copy_size = min_t(size_t, data_block->size,
-			(size_t)MIUS_VERSION_INFO_SIZE);
-
-		memcpy((u8 *)data_block->buffer,
-			&payload[3], copy_size);
-		ret = (int32_t)copy_size;
-	}
-	return ret;
-}
-
-static int32_t process_branch_msg(uint32_t *payload, uint32_t payload_size)
-{
-	struct mius_shared_data_block *data_block = NULL;
-	size_t copy_size = 0;
-	int32_t  ret = -1;
-
-	pr_err("[MIUS]: %s() size:%d\n", __func__, payload_size);
-
-	if (payload_size >= MIUS_BRANCH_INFO_SIZE) {
-		pr_debug("[MIUS]: mius_branch copied to local AP cache");
-		data_block =
-		mius_get_shared_obj(
-			MIUS_OBJ_ID_BRANCH_INFO);
-		copy_size = min_t(size_t, data_block->size,
-			(size_t)MIUS_BRANCH_INFO_MAX_SIZE);
-
-		memcpy((u8 *)data_block->buffer,
-			&payload[3], copy_size);
-		ret = (int32_t)copy_size;
-	}
-	return ret;
-}
-
-static int32_t process_tag_msg(uint32_t *payload, uint32_t payload_size)
-{
-	struct mius_shared_data_block *data_block = NULL;
-	size_t copy_size = 0;
-	int32_t  ret = -1;
-
-	pr_err("[MIUS]: %s() size:%d\n", __func__, payload_size);
-
-	if (payload_size >= MIUS_TAG_INFO_SIZE) {
-		pr_debug("[MIUS]: mius_tag copied to local AP cache");
-		data_block =
-		mius_get_shared_obj(
-			MIUS_OBJ_ID_TAG_INFO);
-		copy_size = min_t(size_t, data_block->size,
-			(size_t)MIUS_TAG_INFO_SIZE);
-
-		memcpy((u8 *)data_block->buffer,
-			&payload[3], copy_size);
-		ret = (int32_t)copy_size;
-	}
-	return ret;
-}
-
-static int32_t process_calibration_msg(uint32_t *payload, uint32_t payload_size)
-{
-	struct mius_shared_data_block *data_block = NULL;
-	size_t copy_size = 0;
-	int32_t  ret = -1;
-
-	pr_err("[MIUS]: %s() size:%d\n", __func__, payload_size);
-
-	if (payload_size >= MIUS_CALIBRATION_DATA_SIZE) {
-		pr_debug("[MIUS]: calibration_data copied to local AP cache");
-
-		data_block = mius_get_shared_obj(
-			MIUS_OBJ_ID_CALIBRATION_DATA);
-		copy_size = min_t(size_t, data_block->size,
-			(size_t)MIUS_CALIBRATION_DATA_SIZE);
-
-		memcpy((u8 *)data_block->buffer,
-			&payload[3], copy_size);
-		mius_set_calibration_data((u8 *)&payload[3], copy_size);
-		ret = (int32_t)copy_size;
-	}
-	return ret;
-}
-
-static int32_t process_calibration_v2_msg(uint32_t *payload, uint32_t payload_size)
-{
-	struct mius_shared_data_block *data_block = NULL;
-	size_t copy_size = 0;
-	int32_t  ret = -1;
-
-	pr_err("[MIUS]: %s() size:%d\n", __func__, payload_size);
-
-	if (payload_size >= MIUS_CALIBRATION_V2_DATA_SIZE) {
-		pr_debug("[MIUS]: calibration_data copied to local AP cache");
-
-		data_block = mius_get_shared_obj(
-			MIUS_OBJ_ID_CALIBRATION_V2_DATA);
-		copy_size = min_t(size_t, data_block->size,
-			(size_t)MIUS_CALIBRATION_V2_DATA_SIZE);
-
-		memcpy((u8 *)data_block->buffer,
-			&payload[3], copy_size);
-		mius_set_calibration_data((u8 *)&payload[3], copy_size);
-		ret = (int32_t)copy_size;
-	}
-	return ret;
-}
-
-static int32_t process_ml_msg(uint32_t *payload, uint32_t payload_size)
-{
-	struct mius_shared_data_block *data_block = NULL;
-	size_t copy_size = 0;
-	int32_t  ret = -1;
-
-	pr_err("[MIUS]: %s() size:%d\n", __func__, payload_size);
-
-	if (payload_size >= MIUS_ML_DATA_SIZE) {
-		pr_debug("[MIUS]: ml_data copied to local AP cache");
-
-		data_block = mius_get_shared_obj(
-			MIUS_OBJ_ID_ML_DATA);
-		copy_size = min_t(size_t, data_block->size,
-			(size_t)MIUS_ML_DATA_SIZE);
-
-		memcpy((u8 *)data_block->buffer,
-			&payload[3], copy_size);
-		ret = (int32_t)copy_size;
-	}
-	return ret;
-}
-
-static int32_t process_diagnostics_msg(uint32_t *payload, uint32_t payload_size)
-{
-	struct mius_shared_data_block *data_block = NULL;
-	size_t copy_size = 0;
-	int32_t  ret = -1;
-
-	pr_err("[MIUS]: %s() size:%d\n", __func__, payload_size);
-
-	if (payload_size >= MIUS_DIAGNOSTICS_DATA_SIZE) {
-		pr_debug("[MIUS]: diagnostics_data copied to local AP cache");
-
-		data_block = mius_get_shared_obj(
-			MIUS_OBJ_ID_DIAGNOSTICS_DATA);
-		copy_size = min_t(size_t, data_block->size,
-			(size_t)MIUS_DIAGNOSTICS_DATA_SIZE);
-
-		memcpy((u8 *)data_block->buffer,
-			&payload[3], copy_size);
-		ret = (int32_t)copy_size;
-	}
-	return ret;
-}
-
-static int32_t process_sensorhub_msg(uint32_t *payload, uint32_t payload_size)
-{
-	int32_t  ret = 0;
-
-	pr_err("[MIUS]: %s, paramId:%u, size:%d\n",
-			__func__, payload[1], payload_size);
-
-	return ret;
-}
-
-#endif
 
 int32_t mius_process_apr_payload(uint32_t *payload)
 {
 	uint32_t payload_size = 0;
 	int32_t  ret = -1;
 
-	//if (payload[0] == MIUS_ULTRASOUND_MODULE_TX) {
-	if (true) {
-		/* payload format
-		*   payload[0] = Module ID
-		*   payload[1] = Param ID
-		*   payload[2] = LSB - payload size
-		*		MSB - reserved(TBD)
-		*   payload[3] = US data payload starts from here
-		*/
-		payload_size = payload[2] & 0xFFFF;
-#if 0
-		switch (payload[1]) {
-		case MIUS_ULTRASOUND_PARAM_ID_ENGINE_VERSION:
-			ret = process_version_msg(payload, payload_size);
-			break;
-		case MIUS_ULTRASOUND_PARAM_ID_BUILD_BRANCH:
-			ret = process_branch_msg(payload, payload_size);
-			break;
-		case MIUS_ULTRASOUND_PARAM_ID_TAG:
-			ret = process_tag_msg(payload, payload_size);
-			break;
-		case MIUS_ULTRASOUND_PARAM_ID_CALIBRATION_DATA:
-			ret = process_calibration_msg(payload, payload_size);
-			break;
-		case MIUS_ULTRASOUND_PARAM_ID_CALIBRATION_V2_DATA:
-			ret = process_calibration_v2_msg(payload, payload_size);
-			break;
-		case MIUS_ULTRASOUND_PARAM_ID_ML_DATA:
-			ret = process_ml_msg(payload, payload_size);
-			break;
-		case MIUS_ULTRASOUND_PARAM_ID_DIAGNOSTICS_DATA:
-			ret = process_diagnostics_msg(payload, payload_size);
-			break;
-		case MIUS_ULTRASOUND_PARAM_ID_SENSORHUB:
-			ret = process_sensorhub_msg(payload, payload_size);
-			break;
-		case MIUS_ULTRASOUND_PARAM_ID_ENGINE_DATA:
+	/* payload format
+	 *   payload[0] = Module ID
+	 *   payload[1] = Param ID
+	 *   payload[2] = LSB - payload size
+	 *		MSB - reserved(TBD)
+	 *   payload[3] = US data payload starts from here
+	 */
+	payload_size = payload[2] & 0xFFFF;
+		if (payload[3] == 0 || payload[3] == 1) {
+			ups_event = payload[3];
+#ifdef CONFIG_QGKI_SYSTEM
+			ret = (int32_t)us_afe_callback((const uint32_t)payload[3]);
 #endif
-			printk(KERN_DEBUG "[MIUS] mi us payload[3] = %d", (int)payload[3]);
-			if (payload[3] == 0 || payload[3] == 1) {
-				ups_event = payload[3];
-			#ifdef CONFIG_QGKI_SYSTEM
-				ret = (int32_t)us_afe_callback((const uint32_t)payload[3]);
-			#endif
-			} else {
-
-				ups_event = ups_event ^ 1;
-				printk(KERN_DEBUG "[MIUS] >> change ups to %d", ups_event);
-			#ifdef CONFIG_QGKI_SYSTEM
-				ret = (int32_t)us_afe_callback((uint32_t)ups_event);
-			#endif
-			}
-
-			if (ret != 0) {
-				pr_err("[MIUS] : failed to push apr payload to mius device");
-				return ret;
-			}
-			ret = payload_size;
-#if 0
-			break;
-		default:
-			{
-				pr_err("[MIUS] : mius_process_apr_payload, Illegal paramId:%u", payload[1]);
-			}
-			break;
+		} else {
+			ups_event = ups_event ^ 1;
+#ifdef CONFIG_QGKI_SYSTEM
+			ret = (int32_t)us_afe_callback((uint32_t)ups_event);
+#endif
 		}
-#endif
-	} else {
-		pr_debug("[MIUS]: Invalid Ultrasound Module ID %d\n",
-			payload[0]);
-	}
+
+		if (ret != 0) {
+			pr_err("[MIUS] : failed to push apr payload to mius device");
+			return ret;
+		}
+
+		ret = payload_size;
+
 	return ret;
 }
 

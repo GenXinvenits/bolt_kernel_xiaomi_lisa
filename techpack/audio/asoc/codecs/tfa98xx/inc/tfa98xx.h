@@ -1,6 +1,6 @@
 /* 
  * Copyright (C) 2014-2020 NXP Semiconductors, All Rights Reserved.
- * Copyright 2020 GOODIX 
+ * Copyright 2021 GOODIX 
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -14,7 +14,9 @@
 #include <linux/kernel.h>
 #include <linux/types.h>
 #include <linux/list.h>
+#ifdef CONFIG_MACH_XIAOMI
 #include <linux/miscdevice.h>
+#endif
 
 #include "tfa_device.h"
 #include "tfa_container.h"
@@ -36,7 +38,11 @@
 #define TFA98XX_FLAG_TDM_DEVICE         (1 << 8)
 #define TFA98XX_FLAG_ADAPT_NOISE_MODE   (1 << 9)
 
+#ifdef CONFIG_MACH_XIAOMI
 #define TFA98XX_NUM_RATES		10
+#else
+#define TFA98XX_NUM_RATES		9
+#endif
 
 /* DSP init status */
 enum tfa98xx_dsp_init_state {
@@ -54,6 +60,8 @@ enum tfa98xx_dsp_fw_state {
        TFA98XX_DSP_FW_FAIL,
        TFA98XX_DSP_FW_OK,
 };
+
+#ifdef CONFIG_MACH_XIAOMI
 
 enum tfa98xx_misc_device_id {
 	MISC_DEVICE_TFA98XX_REG,
@@ -89,6 +97,7 @@ struct livedata_cfg {
 	int track;
 	int scaler;
 };
+#endif
 
 struct tfa98xx_firmware {
 	void			*base;
@@ -149,7 +158,9 @@ struct tfa98xx {
 	int reset_gpio;
 	int power_gpio;
 	int irq_gpio;
+#ifdef CONFIG_MACH_XIAOMI
 	int spk_sw_gpio;
+#endif
 	enum tfa_reset_polarity reset_polarity; 
 	struct list_head list;
 	struct tfa_device *tfa;
@@ -164,6 +175,7 @@ struct tfa98xx {
 	unsigned int flags;
 	bool set_mtp_cal;
 	uint16_t cal_data;
+#ifdef CONFIG_MACH_XIAOMI
 	enum TFA_DEVICE_MUTE tfa_mute_mode;
 
 	struct device_node *spk_id_gpio_p;
@@ -173,12 +185,14 @@ struct tfa98xx {
 	struct miscdevice tfa98xx_rpc;	
 	struct miscdevice tfa98xx_profile;
 	struct miscdevice tfa98xx_control;
+#endif
 };
 
+#ifdef CONFIG_MACH_XIAOMI
 /*for furture, we will move it to DTS to mark left and right channel*/
 #define TFA_LEFT_DEVICE_ADDRESS   (0x34)
 #define TFA_RIGHT_DEVICE_ADDRESS  (0x35)
-
+#endif
 
 #endif /* __TFA98XX_INC__ */
 

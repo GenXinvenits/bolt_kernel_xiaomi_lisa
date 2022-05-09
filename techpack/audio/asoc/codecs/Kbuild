@@ -147,6 +147,7 @@ ifdef CONFIG_WCD9XXX_CODEC_CORE
 	WCD9XXX_OBJS += wcd9xxx-resmgr-v2.o
 	WCD9XXX_OBJS += wcd-dsp-utils.o
 	WCD9XXX_OBJS += wcd-dsp-mgr.o
+	WCD9XXX_OBJS += wcd-clsh.o
 else
 	WCD9XXX_OBJS += wcd-clsh.o
 endif
@@ -232,7 +233,6 @@ CDEFINES +=	-DANI_LITTLE_BYTE_ENDIAN \
 		-DANI_OS_TYPE_ANDROID=6 \
 		-DPTT_SOCK_SVC_ENABLE \
 		-Wall\
-		-Werror\
 		-D__linux__
 
 KBUILD_CPPFLAGS += $(CDEFINES)
@@ -265,11 +265,7 @@ ifeq ($(KERNEL_BUILD), 1)
 	obj-y	+= rouleur/
 endif
 
-ifneq (,$(filter $(TARGET_PRODUCT), venus star haydn odin))
-	obj-y	+= cs35l41/
-endif
-
-ifneq (,$(filter $(TARGET_PRODUCT), renoir lisa))
+ifeq ($(CONFIG_MACH_XIAOMI_LISA), y)
 	obj-y	+= tfa98xx/
 endif
 
@@ -312,6 +308,3 @@ endif
 
 obj-$(CONFIG_SND_SWR_HAPTICS) += swr_haptics_dlkm.o
 swr_haptics_dlkm-y := $(SWR_HAP_OBJS)
-
-# inject some build related information
-DEFINES += -DBUILD_TIMESTAMP=\"$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')\"

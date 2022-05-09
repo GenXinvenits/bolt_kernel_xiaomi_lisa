@@ -4,9 +4,6 @@
 
 #include <linux/types.h>
 
-#ifdef CONFIG_DEBUG_POWER_MI
-extern int qrtr_first_msg;
-#endif
 struct sk_buff;
 
 /* endpoint node id auto assignment */
@@ -41,4 +38,6 @@ void qrtr_ns_init(void);
 void qrtr_ns_remove(void);
 
 int qrtr_peek_pkt_size(const void *data);
+
+unsigned int qrtr_get_service_id(unsigned int node_id, unsigned int port_id);
 #endif

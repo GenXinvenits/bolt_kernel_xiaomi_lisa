@@ -321,6 +321,7 @@ void __migration_entry_wait(struct mm_struct *mm, pte_t *ptep,
 		goto out;
 
 	page = migration_entry_to_page(entry);
+	page = compound_head(page);
 
 	/*
 	 * Once page cache replacement of page migration started, page_count
@@ -1532,7 +1533,7 @@ static int add_page_for_migration(struct mm_struct *mm, unsigned long addr,
 	unsigned int follflags;
 	int err;
 
-	down_read(&mm->mmap_sem);
+	mmap_read_lock(mm);
 	err = -EFAULT;
 	vma = find_vma(mm, addr);
 	if (!vma || addr < vma->vm_start || !vma_migratable(vma))
@@ -1585,7 +1586,7 @@ out_putpage:
 	 */
 	put_page(page);
 out:
-	up_read(&mm->mmap_sem);
+	mmap_read_unlock(mm);
 	return err;
 }
 
@@ -1717,7 +1718,7 @@ static void do_pages_stat_array(struct mm_struct *mm, unsigned long nr_pages,
 {
 	unsigned long i;
 
-	down_read(&mm->mmap_sem);
+	mmap_read_lock(mm);
 
 	for (i = 0; i < nr_pages; i++) {
 		unsigned long addr = (unsigned long)(*pages);
@@ -1744,7 +1745,7 @@ set_status:
 		status++;
 	}
 
-	up_read(&mm->mmap_sem);
+	mmap_read_unlock(mm);
 }
 
 /*
@@ -2773,6 +2774,13 @@ static void migrate_vma_insert_page(struct migrate_vma *migrate,
 
 			swp_entry = make_device_private_entry(page, vma->vm_flags & VM_WRITE);
 			entry = swp_entry_to_pte(swp_entry);
+		} else {
+			/*
+			 * For now we only support migrating to un-addressable
+			 * device memory.
+			 */
+			pr_warn_once("Unsupported ZONE_DEVICE page type.\n");
+			goto abort;
 		}
 	} else {
 		entry = mk_pte(page, vma->vm_page_prot);

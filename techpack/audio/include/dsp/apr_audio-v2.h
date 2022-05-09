@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
+ * Copyright (c) 2022, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 
@@ -222,6 +222,8 @@ struct adm_cmd_matrix_map_routings_v5 {
 
 /* Definition for a low latency stream session. */
 #define ADM_LOW_LATENCY_DEVICE_SESSION			0x2000
+
+#define ADM_LOW_LATENCY_NPROC_DEVICE_SESSION		0x6000
 
 /* Definition for a ultra low latency stream session. */
 #define ADM_ULTRA_LOW_LATENCY_DEVICE_SESSION		0x4000
@@ -1308,9 +1310,10 @@ struct adm_cmd_connect_afe_port_v5 {
  */
 } __packed;
 
+#ifdef CONFIG_MACH_XIAOMI
 /* Allows a client to notify adsp the device model */
 
-#define ADM_CMD_SET_DEVICE_MODEL	0x00011112
+#define ADM_CMD_SET_DEVICE_MODEL    0x00011112
 
 /*  Payload of the #ADM_CMD_SET_DEVICE_MODEL command.*/
 struct adm_cmd_set_device_model {
@@ -1318,6 +1321,7 @@ struct adm_cmd_set_device_model {
 	u8                 model;
 /* ID of the device model */
 } __packed;
+#endif
 
 /* adsp_adm_api.h */
 
@@ -2606,7 +2610,9 @@ struct afe_event_rt_proxy_port_status {
 } __packed;
 
 #define AFE_PORT_DATA_CMD_RT_PROXY_PORT_WRITE_V2 0x000100ED
+#ifdef CONFIG_MACH_XIAOMI
 #define AFE_PORT_SEND_DATA_CMD   0x00011111
+#endif
 
 struct afe_port_data_cmd_rt_proxy_port_write_v2 {
 	struct apr_hdr hdr;
@@ -4811,6 +4817,7 @@ struct asm_ldac_enc_cfg_t {
 	struct afe_abr_enc_cfg_t abr_config;
 } __packed;
 
+#ifdef CONFIG_MACH_XIAOMI
 #define ASM_MEDIA_FMT_LHDC 0x1000B400
 #define ENC_CODEC_TYPE_LHDC 0x28000000
 struct asm_lhdc_specific_enc_cfg_t {
@@ -4859,7 +4866,7 @@ struct asm_lhdc_enc_cfg_t {
 	struct asm_lhdc_specific_enc_cfg_t  lhdc_specific_config;
 	struct afe_abr_enc_cfg_t abr_config;
 } __packed;
-
+#endif
 
 struct afe_enc_fmt_id_param_t {
 	/*
@@ -5055,7 +5062,9 @@ union afe_enc_config_data {
 	struct asm_celt_enc_cfg_t  celt_config;
 	struct asm_aptx_enc_cfg_t  aptx_config;
 	struct asm_ldac_enc_cfg_t  ldac_config;
+#ifdef CONFIG_MACH_XIAOMI
 	struct asm_lhdc_enc_cfg_t  lhdc_config;
+#endif
 	struct asm_aptx_ad_enc_cfg_t  aptx_ad_config;
 	struct asm_aptx_ad_speech_enc_cfg_t aptx_ad_speech_config;
 	struct asm_enc_lc3_cfg_t lc3_enc_config;
@@ -8161,6 +8170,8 @@ struct asm_session_cmdrsp_get_path_delay_v2 {
 #define ASM_LOW_LATENCY_STREAM_SESSION				0x10000000
 
 #define ASM_ULTRA_LOW_LATENCY_STREAM_SESSION			0x20000000
+
+#define ASM_ULTRA_LOW_LATENCY_NPROC_STREAM_SESSION		0x30000000
 
 #define ASM_ULL_POST_PROCESSING_STREAM_SESSION			0x40000000
 
@@ -12272,6 +12283,9 @@ struct afe_param_id_clip_bank_sel {
 /* Supported LPASS CLK root*/
 #define Q6AFE_LPASS_CLK_ROOT_DEFAULT 0
 
+#define Q6AFE_LPASS_MCLK_IN0 1
+#define Q6AFE_LPASS_MCLK_IN1 2
+
 enum afe_lpass_clk_mode {
 	Q6AFE_LPASS_MODE_BOTH_INVALID,
 	Q6AFE_LPASS_MODE_CLK1_VALID,
@@ -12425,6 +12439,8 @@ enum afe_lpass_clk_mode {
 /* Clock ID for AHB HDMI input */
 #define Q6AFE_LPASS_CLK_ID_AHB_HDMI_INPUT                         0x400
 
+#define Q6AFE_LPASS_CLK_ID_SPDIF_CORE                             0x000
+
 /* Clock ID for the primary SPDIF output core. */
 #define AFE_CLOCK_SET_CLOCK_ID_PRI_SPDIF_OUTPUT_CORE              0x500
 /* Clock ID for the secondary SPDIF output core. */
@@ -12510,6 +12526,12 @@ struct afe_clk_set {
 #define AVS_BUILD_BRANCH_VERSION_V3		3
 
 #define AFE_PARAM_ID_CLOCK_SET_V2		0x000102E6
+
+#define AFE_CLOCK_SET_CLOCK_ROOT_DEFAULT	0x2
+#define AFE_CLOCK_DEFAULT_INTEGER_DIVIDER	0x0
+#define AFE_CLOCK_DEFAULT_M_VALUE		0x1
+#define AFE_CLOCK_DEFAULT_N_VALUE		0x2
+#define AFE_CLOCK_DEFAULT_D_VALUE		0x1
 
 #define AFE_API_VERSION_CLOCK_SET_V2		0x1
 
@@ -13686,4 +13708,16 @@ struct afe_param_id_port_data_log_disable_t
 	 */
 } __packed;
 
+#define AFE_MODULE_LIMITER  0x000102A8
+#define AFE_PARAM_ID_ENABLE 0x00010203
+struct afe_param_id_port_afe_limiter_disable_t
+{
+	uint16_t           disable_afe_limiter;
+	/** Flag for enabling or disabling data logging.
+	 * @values
+	 * - AFE_PORT_DATA_LOGGING_ENABLE  - enable data logging.
+	 * - AFE_PORT_DATA_LOGGING_DISABLE - disable data logging.
+	 */
+	 uint16_t	reserved;
+} __packed;
 #endif /*_APR_AUDIO_V2_H_ */

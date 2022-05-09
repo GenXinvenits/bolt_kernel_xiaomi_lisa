@@ -70,17 +70,7 @@
 	((125 * 1024 * (10 * (avdd) - 125) * 40) / ((diffcode) * 10000) - 40)
 #define DRV_TO_GND_R(diffcode)	((64148 / (diffcode)) - 40)
 #define SEN_TO_GND_R(diffcode)	((64148 / (diffcode)) - 40)
-/*
-#define FORMAT_PATH(path, mdir, name, suffix) do{\
-	struct timex txc;\
-	struct rtc_time tm;\
-	do_gettimeofday(&(txc.time));\
-	rtc_time_to_tm(txc.time.tv_sec, &tm);\
-	sprintf((char*)path, "%s%s_%04d%02d%02d%02d%02d%02d%s", mdir,name,\
-		(tm.tm_year + 1900), (tm.tm_mon + 1), tm.tm_mday, tm.tm_hour,\
-		tm.tm_min, tm.tm_sec, suffix);\
-}while(0)
-*/
+
 
 static u32 gt9897s_short_parms[] = {10, 150, 150, 150, 100, 100, 30};
 static u8 gt9897s_drv_map[] = {
@@ -242,7 +232,7 @@ static void goto_next_line(char **ptr)
 	*ptr = *ptr + 1;
 }
 
-#ifdef CONFIG_TOUCHSCREEN_QGKI_GOODIX
+#ifdef CONFIG_TOUCHSCREEN_GOODIX_BRL_QGKI
 static void copy_this_line(char *dest, char *src)
 {
 	char *copy_from;
@@ -365,7 +355,7 @@ static int parse_csvfile(char *buf, size_t size, char *target_name,
 		}
 
 		if (data) {
-		#ifdef CONFIG_TOUCHSCREEN_QGKI_GOODIX
+		#ifdef CONFIG_TOUCHSCREEN_GOODIX_BRL_QGKI
 			ret = parse_valid_data(buf, size, ptr, data, rows);
 		#else
 			ret = -EINTR;
@@ -1670,7 +1660,7 @@ char *goodix_strncat(char *dest, char *src, size_t dest_size)
 	size_t dest_len = 0;
 
 	dest_len = strnlen(dest, dest_size);
-#ifdef CONFIG_TOUCHSCREEN_QGKI_GOODIX
+#ifdef CONFIG_TOUCHSCREEN_GOODIX_BRL_QGKI
 	return strncat(&dest[dest_len], src, dest_size - dest_len - 1);
 #else
 	return 0;
@@ -1736,11 +1726,11 @@ static void goodix_data_statistics(s16 *data, size_t data_size,
 static ssize_t fs_write(const void* buf, size_t size, struct file* fp)
 {
 	ssize_t len = -1;
-#ifdef CONFIG_TOUCHSCREEN_QGKI_GOODIX
+#ifdef CONFIG_TOUCHSCREEN_GOODIX_BRL_QGKI
 	loff_t pos;
 #endif
 
-#ifdef CONFIG_TOUCHSCREEN_QGKI_GOODIX
+#ifdef CONFIG_TOUCHSCREEN_GOODIX_BRL_QGKI
 	pos = fp->f_pos;
 	len = __kernel_write(fp, buf, size, &pos);
 	fp->f_pos = pos;
@@ -2377,7 +2367,7 @@ static void goodix_save_result_data(struct goodix_ts_test *ts_test)
 	/* FORMAT_PATH(save_path, GOODIX_RESULT_SAVE_PATH, "Test_Data", ".csv"); */
 	sprintf(save_path, GOODIX_RESULT_SAVE_PATH);
 	ts_info("save result IN, file_name:%s", save_path);
-#ifdef CONFIG_TOUCHSCREEN_QGKI_GOODIX
+#ifdef CONFIG_TOUCHSCREEN_GOODIX_BRL_QGKI
 	fp = filp_open(save_path, O_CREAT | O_WRONLY | O_TRUNC, 0666);
 	if (IS_ERR(fp)) {
 		ts_err("create file:%s failed, fp:%ld", save_path, PTR_ERR(fp));
@@ -2409,7 +2399,7 @@ static void goodix_save_result_data(struct goodix_ts_test *ts_test)
 
 	ts_info("the test result save in %s", save_path);
 save_end:
-#ifdef CONFIG_TOUCHSCREEN_QGKI_GOODIX
+#ifdef CONFIG_TOUCHSCREEN_GOODIX_BRL_QGKI
 	filp_close(fp, NULL);
 #else
 	return;

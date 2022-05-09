@@ -9,7 +9,6 @@
  * interface.
  *
  * Copyright (C) 2010 IBM Corperation
- * Copyright (C) 2021 XiaoMi, Inc.
  *
  * Author: John Stultz <john.stultz@linaro.org>
  */
@@ -27,7 +26,6 @@
 #include <linux/freezer.h>
 #include <linux/compat.h>
 #include <linux/module.h>
-
 
 #include "posix-timers.h"
 
@@ -172,8 +170,6 @@ static void alarmtimer_enqueue(struct alarm_base *base, struct alarm *alarm)
 {
 	if (alarm->state & ALARMTIMER_STATE_ENQUEUED)
 		timerqueue_del(&base->timerqueue, &alarm->node);
-
-
 
 	timerqueue_add(&base->timerqueue, &alarm->node);
 	alarm->state |= ALARMTIMER_STATE_ENQUEUED;
@@ -842,9 +838,9 @@ static int alarm_timer_nsleep(const clockid_t which_clock, int flags,
 	if (flags == TIMER_ABSTIME)
 		return -ERESTARTNOHAND;
 
-	restart->fn = alarm_timer_nsleep_restart;
 	restart->nanosleep.clockid = type;
 	restart->nanosleep.expires = exp;
+	set_restart_fn(restart, alarm_timer_nsleep_restart);
 	return ret;
 }
 

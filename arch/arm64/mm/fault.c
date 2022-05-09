@@ -24,6 +24,10 @@
 #include <linux/preempt.h>
 #include <linux/hugetlb.h>
 
+#ifdef CONFIG_TLB_CONF_HANDLER
+#include <linux/qcom_scm.h>
+#endif
+
 #include <asm/acpi.h>
 #include <asm/bug.h>
 #include <asm/cmpxchg.h>
@@ -32,7 +36,8 @@
 #include <asm/daifflags.h>
 #include <asm/debug-monitors.h>
 #include <asm/esr.h>
-#include <asm/kasan.h>
+#include <asm/kprobes.h>
+#include <asm/processor.h>
 #include <asm/sysreg.h>
 #include <asm/system_misc.h>
 #include <asm/pgtable.h>
@@ -99,18 +104,6 @@ static void mem_abort_decode(unsigned int esr)
 
 	if (esr_is_data_abort(esr))
 		data_abort_decode(esr);
-}
-
-static inline bool is_ttbr0_addr(unsigned long addr)
-{
-	/* entry assembly clears tags for TTBR0 addrs */
-	return addr < TASK_SIZE;
-}
-
-static inline bool is_ttbr1_addr(unsigned long addr)
-{
-	/* TTBR1 addresses may have a tag if KASAN_SW_TAGS is in use */
-	return arch_kasan_reset_tag(addr) >= PAGE_OFFSET;
 }
 
 static inline unsigned long mm_to_pgd_phys(struct mm_struct *mm)
@@ -508,11 +501,11 @@ static int __kprobes do_page_fault(unsigned long addr, unsigned int esr,
 	 * validly references user space from well defined areas of the code,
 	 * we can bug out early if this is from code which shouldn't.
 	 */
-	if (!down_read_trylock(&mm->mmap_sem)) {
+	if (!mmap_read_trylock(mm)) {
 		if (!user_mode(regs) && !search_exception_tables(regs->pc))
 			goto no_context;
 retry:
-		down_read(&mm->mmap_sem);
+		mmap_read_lock(mm);
 	} else {
 		/*
 		 * The above down_read_trylock() might have succeeded in which
@@ -521,7 +514,7 @@ retry:
 		might_sleep();
 #ifdef CONFIG_DEBUG_VM
 		if (!user_mode(regs) && !search_exception_tables(regs->pc)) {
-			up_read(&mm->mmap_sem);
+			mmap_read_unlock(mm);
 			goto no_context;
 		}
 #endif
@@ -563,7 +556,7 @@ retry:
 			goto retry;
 		}
 	}
-	up_read(&mm->mmap_sem);
+	mmap_read_unlock(mm);
 
 done:
 
@@ -691,6 +684,15 @@ static int do_sea(unsigned long addr, unsigned int esr, struct pt_regs *regs)
 	return 0;
 }
 
+#ifdef CONFIG_TLB_CONF_HANDLER
+static int do_tlb_conf_fault(unsigned long addr, unsigned int esr, struct pt_regs *regs)
+{
+	if (qcom_scm_tlb_conf_handler(addr))
+		return 1;
+	return 0;
+}
+#endif
+
 static const struct fault_info fault_info[] = {
 	{ do_bad,		SIGKILL, SI_KERNEL,	"ttbr address size fault"	},
 	{ do_bad,		SIGKILL, SI_KERNEL,	"level 1 address size fault"	},
@@ -740,7 +742,11 @@ static const struct fault_info fault_info[] = {
 	{ do_bad,		SIGKILL, SI_KERNEL,	"unknown 45"			},
 	{ do_bad,		SIGKILL, SI_KERNEL,	"unknown 46"			},
 	{ do_bad,		SIGKILL, SI_KERNEL,	"unknown 47"			},
+#ifdef CONFIG_TLB_CONF_HANDLER
+	{ do_tlb_conf_fault,	SIGKILL, SI_KERNEL,	"TLB conflict abort"		},
+#else
 	{ do_bad,		SIGKILL, SI_KERNEL,	"TLB conflict abort"		},
+#endif
 	{ do_bad,		SIGKILL, SI_KERNEL,	"Unsupported atomic hardware update fault"	},
 	{ do_bad,		SIGKILL, SI_KERNEL,	"unknown 50"			},
 	{ do_bad,		SIGKILL, SI_KERNEL,	"unknown 51"			},
@@ -758,8 +764,7 @@ static const struct fault_info fault_info[] = {
 	{ do_bad,		SIGKILL, SI_KERNEL,	"unknown 63"			},
 };
 
-asmlinkage void __exception do_mem_abort(unsigned long addr, unsigned int esr,
-					 struct pt_regs *regs)
+void do_mem_abort(unsigned long addr, unsigned int esr, struct pt_regs *regs)
 {
 	const struct fault_info *inf = esr_to_fault_info(esr);
 
@@ -775,43 +780,21 @@ asmlinkage void __exception do_mem_abort(unsigned long addr, unsigned int esr,
 	arm64_notify_die(inf->name, regs,
 			 inf->sig, inf->code, (void __user *)addr, esr);
 }
+NOKPROBE_SYMBOL(do_mem_abort);
 
-asmlinkage void __exception do_el0_irq_bp_hardening(void)
+void do_el0_irq_bp_hardening(void)
 {
 	/* PC has already been checked in entry.S */
 	arm64_apply_bp_hardening();
 }
+NOKPROBE_SYMBOL(do_el0_irq_bp_hardening);
 
-asmlinkage void __exception do_el0_ia_bp_hardening(unsigned long addr,
-						   unsigned int esr,
-						   struct pt_regs *regs)
+void do_sp_pc_abort(unsigned long addr, unsigned int esr, struct pt_regs *regs)
 {
-	/*
-	 * We've taken an instruction abort from userspace and not yet
-	 * re-enabled IRQs. If the address is a kernel address, apply
-	 * BP hardening prior to enabling IRQs and pre-emption.
-	 */
-	if (!is_ttbr0_addr(addr))
-		arm64_apply_bp_hardening();
-
-	local_daif_restore(DAIF_PROCCTX);
-	do_mem_abort(addr, esr, regs);
-}
-
-
-asmlinkage void __exception do_sp_pc_abort(unsigned long addr,
-					   unsigned int esr,
-					   struct pt_regs *regs)
-{
-	if (user_mode(regs)) {
-		if (!is_ttbr0_addr(instruction_pointer(regs)))
-			arm64_apply_bp_hardening();
-		local_daif_restore(DAIF_PROCCTX);
-	}
-
 	arm64_notify_die("SP/PC alignment exception", regs,
 			 SIGBUS, BUS_ADRALN, (void __user *)addr, esr);
 }
+NOKPROBE_SYMBOL(do_sp_pc_abort);
 
 int __init early_brk64(unsigned long addr, unsigned int esr,
 		       struct pt_regs *regs);
@@ -894,8 +877,7 @@ NOKPROBE_SYMBOL(debug_exception_exit);
 #ifdef CONFIG_ARM64_ERRATUM_1463225
 DECLARE_PER_CPU(int, __in_cortex_a76_erratum_1463225_wa);
 
-static int __exception
-cortex_a76_erratum_1463225_debug_handler(struct pt_regs *regs)
+static int cortex_a76_erratum_1463225_debug_handler(struct pt_regs *regs)
 {
 	if (user_mode(regs))
 		return 0;
@@ -914,16 +896,15 @@ cortex_a76_erratum_1463225_debug_handler(struct pt_regs *regs)
 	return 1;
 }
 #else
-static int __exception
-cortex_a76_erratum_1463225_debug_handler(struct pt_regs *regs)
+static int cortex_a76_erratum_1463225_debug_handler(struct pt_regs *regs)
 {
 	return 0;
 }
 #endif /* CONFIG_ARM64_ERRATUM_1463225 */
+NOKPROBE_SYMBOL(cortex_a76_erratum_1463225_debug_handler);
 
-asmlinkage void __exception do_debug_exception(unsigned long addr_if_watchpoint,
-					       unsigned int esr,
-					       struct pt_regs *regs)
+void do_debug_exception(unsigned long addr_if_watchpoint, unsigned int esr,
+			struct pt_regs *regs)
 {
 	const struct fault_info *inf = esr_to_debug_fault_info(esr);
 	unsigned long pc = instruction_pointer(regs);

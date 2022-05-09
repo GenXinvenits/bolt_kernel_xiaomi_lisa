@@ -3,7 +3,6 @@
  * MTD Oops/Panic logger
  *
  * Copyright © 2007 Nokia Corporation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  *
  * Author: Richard Purdie <rpurdie@openedhand.com>
  */
@@ -12,7 +11,6 @@
 #include <linux/module.h>
 #include <linux/console.h>
 #include <linux/vmalloc.h>
-#include <linux/slab.h>
 #include <linux/workqueue.h>
 #include <linux/sched.h>
 #include <linux/wait.h>
@@ -20,9 +18,12 @@
 #include <linux/interrupt.h>
 #include <linux/mtd/mtd.h>
 #include <linux/kmsg_dump.h>
+#ifdef CONFIG_MACH_XIAOMI
 #include <linux/pstore_ram.h>
-#include <generated/compile.h>
 #include <linux/version.h>
+#include <linux/slab.h>
+
+#include <generated/compile.h>
 
 extern struct ramoops_platform_data ramoops_data;
 struct pmsg_buffer_hdr {
@@ -31,12 +32,6 @@ struct pmsg_buffer_hdr {
 	atomic_t    size;
 	uint8_t     data[0];
 };
-
-/* Maximum MTD partition size */
-#define MTDOOPS_MAX_MTD_SIZE (16 * 1024 * 1024)
-
-#define MTDOOPS_KERNMSG_MAGIC 0x5d005d00
-#define MTDOOPS_HEADER_SIZE   8
 
 static char *kdump_reason[8] = {
 	"Unknown",
@@ -54,14 +49,27 @@ enum mtdoops_log_type {
 	MTDOOPS_TYPE_DMESG,
 	MTDOOPS_TYPE_PMSG,
 };
+
 static char *log_type[4] = {
 	"Unknown",
 	"LAST KMSG",
 	"LAST LOGCAT"
 };
 
+#define MTDOOPS_MAX_MTD_SIZE (16 * 1024 * 1024)
+#else
+
+/* Maximum MTD partition size */
+#define MTDOOPS_MAX_MTD_SIZE (8 * 1024 * 1024)
+#endif
+
+#define MTDOOPS_KERNMSG_MAGIC 0x5d005d00
+#define MTDOOPS_HEADER_SIZE   8
+
 static unsigned long record_size = 4096;
+#ifdef CONFIG_MACH_XIAOMI
 static unsigned long lkmsg_record_size = 512 * 1024;
+#endif
 module_param(record_size, ulong, 0400);
 MODULE_PARM_DESC(record_size,
 		"record size for MTD OOPS pages in bytes (default 4096)");
@@ -71,7 +79,11 @@ module_param_string(mtddev, mtddev, 80, 0400);
 MODULE_PARM_DESC(mtddev,
 		"name or index number of the MTD device to use");
 
+#ifdef CONFIG_MACH_XIAOMI
 static int dump_oops = 0;
+#else
+static int dump_oops = 1;
+#endif
 module_param(dump_oops, int, 0600);
 MODULE_PARM_DESC(dump_oops,
 		"set to 1 to dump oopses, 0 to only dump panics (default 1)");
@@ -137,13 +149,8 @@ static int mtdoops_erase_block(struct mtdoops_context *cxt, int offset)
 static void mtdoops_inc_counter(struct mtdoops_context *cxt)
 {
 	cxt->nextpage++;
-	printk(KERN_DEBUG "mtdoops: mtdoops_inc_counter nextpage: %d,oops_pages:%d\n",
-			cxt->nextpage, cxt->oops_pages);
-	if (cxt->nextpage >= cxt->oops_pages) {
+	if (cxt->nextpage >= cxt->oops_pages)
 		cxt->nextpage = 0;
-		printk(KERN_DEBUG "mtdoops: new  nextpage: %d,oops_pages:%d\n",
-				cxt->nextpage, cxt->oops_pages);
-	}
 	cxt->nextcount++;
 	if (cxt->nextcount == 0xffffffff)
 		cxt->nextcount = 0;
@@ -241,9 +248,11 @@ static void mtdoops_write(struct mtdoops_context *cxt, int panic)
 		printk(KERN_ERR "mtdoops: write failure at %ld (%td of %ld written), error %d\n",
 		       cxt->nextpage * record_size, retlen, record_size, ret);
 	mark_page_used(cxt, cxt->nextpage);
+#ifndef CONFIG_MACH_XIAOMI
+	memset(cxt->oops_buf, 0xff, record_size);
+#endif
 
-	if (!panic)
-		mtdoops_inc_counter(cxt);
+	mtdoops_inc_counter(cxt);
 }
 
 static void mtdoops_workfunc_write(struct work_struct *work)
@@ -307,6 +316,7 @@ static void find_next_position(struct mtdoops_context *cxt)
 	mtdoops_inc_counter(cxt);
 }
 
+#ifdef CONFIG_MACH_XIAOMI
 static void mtdoops_add_reason(char *oops_buf, enum kmsg_dump_reason reason, enum mtdoops_log_type type, int index, int nextpage)
 {
 	char str_buf[200] = {0};
@@ -345,6 +355,7 @@ static void mtdoops_add_pmsg_head(char *oops_buf, enum mtdoops_log_type type)
 
 	memcpy(oops_buf, str_buf, ret_len);
 }
+#endif
 
 static void mtdoops_do_dump(struct kmsg_dumper *dumper,
 			    enum kmsg_dump_reason reason)
@@ -352,24 +363,28 @@ static void mtdoops_do_dump(struct kmsg_dumper *dumper,
 	struct mtdoops_context *cxt = container_of(dumper,
 			struct mtdoops_context, dump);
 
+#ifdef CONFIG_MACH_XIAOMI
 	size_t ret_len = 0;
 	char *pmsg_buffer_start = NULL;
 	struct pmsg_buffer_hdr *p_hdr = NULL;
 
 	pmsg_buffer_start = phys_to_virt((ramoops_data.mem_address + ramoops_data.mem_size) - ramoops_data.pmsg_size);
 	p_hdr = (struct pmsg_buffer_hdr *)pmsg_buffer_start;
+#endif
 
 	/* Only dump oopses if dump_oops is set */
 	if (reason == KMSG_DUMP_OOPS && !dump_oops)
 		return;
 
 	kmsg_dump_get_buffer(dumper, true, cxt->oops_buf + MTDOOPS_HEADER_SIZE,
+#ifndef CONFIG_MACH_XIAOMI
+			     record_size - MTDOOPS_HEADER_SIZE, NULL);
+#else
 						lkmsg_record_size - MTDOOPS_HEADER_SIZE, &ret_len);
 
 	mtdoops_add_reason(cxt->oops_buf + MTDOOPS_HEADER_SIZE, reason, MTDOOPS_TYPE_DMESG, cxt->nextcount, cxt->nextpage);
 
-	if(p_hdr->sig == 0x43474244)
-	{
+	if (p_hdr->sig == 0x43474244) {
 		void *oopsbuf = cxt->oops_buf + (MTDOOPS_HEADER_SIZE + ret_len);
 		uint8_t *p_buff_end = p_hdr->data + p_hdr->size.counter;
 		int pmsg_cp_size = 0;
@@ -382,17 +397,21 @@ static void mtdoops_do_dump(struct kmsg_dumper *dumper,
 
 		if (pstart >= pmsg_cp_size)
 			memcpy(oopsbuf, p_hdr->data, pmsg_cp_size);
-		else{
+		else {
 			memcpy(oopsbuf, p_buff_end - (pmsg_cp_size - pstart), pmsg_cp_size - pstart);
 			memcpy(oopsbuf + (pmsg_cp_size - pstart), p_hdr->data, pstart);
 		}
 		mtdoops_add_pmsg_head(cxt->oops_buf + (MTDOOPS_HEADER_SIZE + ret_len), MTDOOPS_TYPE_PMSG);
-	}
-	else
-		printk(KERN_ERR "mtdoops: read pmsg failed sig = 0x%x \n", p_hdr->sig);
+	} else
+		pr_err("mtdoops: read pmsg failed sig = 0x%x \n", p_hdr->sig);
+#endif
 
-	if (reason == KMSG_DUMP_OOPS || reason == KMSG_DUMP_PANIC
-		|| reason == KMSG_DUMP_LONG_PRESS) {
+	if (reason == KMSG_DUMP_OOPS 
+#ifdef CONFIG_MACH_XIAOMI
+		|| reason == KMSG_DUMP_PANIC
+		|| reason == KMSG_DUMP_LONG_PRESS
+#endif
+		) {
 		/* Panics must be written immediately */
 		mtdoops_write(cxt, 1);
 	} else {
@@ -439,7 +458,11 @@ static void mtdoops_notify_add(struct mtd_info *mtd)
 		return;
 	}
 
+#ifndef CONFIG_MACH_XIAOMI
+	cxt->dump.max_reason = KMSG_DUMP_OOPS;
+#else
 	cxt->dump.max_reason = KMSG_DUMP_POWEROFF;
+#endif
 	cxt->dump.dump = mtdoops_do_dump;
 	err = kmsg_dump_register(&cxt->dump);
 	if (err) {
@@ -501,8 +524,11 @@ static int __init mtdoops_init(void)
 	if (*endp == '\0')
 		cxt->mtd_index = mtd_index;
 
-	//cxt->oops_buf = vmalloc(record_size);
+#ifndef CONFIG_MACH_XIAOMI
+	cxt->oops_buf = vmalloc(record_size);
+#else
 	cxt->oops_buf = kmalloc(record_size, GFP_KERNEL);
+#endif
 	if (!cxt->oops_buf) {
 		printk(KERN_ERR "mtdoops: failed to allocate buffer workspace\n");
 		return -ENOMEM;
@@ -521,7 +547,11 @@ static void __exit mtdoops_exit(void)
 	struct mtdoops_context *cxt = &oops_cxt;
 
 	unregister_mtd_user(&mtdoops_notifier);
+#ifndef CONFIG_MACH_XIAOMI
+	vfree(cxt->oops_buf);
+#else
 	kfree(cxt->oops_buf);
+#endif
 	vfree(cxt->oops_page_used);
 }
 

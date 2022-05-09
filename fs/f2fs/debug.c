@@ -120,6 +120,7 @@ static void update_general_status(struct f2fs_sb_info *sbi)
 			atomic_read(&SM_I(sbi)->dcc_info->discard_cmd_cnt);
 		si->undiscard_blks = SM_I(sbi)->dcc_info->undiscard_blks;
 	}
+#ifdef CONFIG_MACH_XIAOMI
 	si->nr_issued_ckpt = atomic_read(&sbi->cprc_info.issued_ckpt);
 	si->nr_total_ckpt = atomic_read(&sbi->cprc_info.total_ckpt);
 	si->nr_queued_ckpt = atomic_read(&sbi->cprc_info.queued_ckpt);
@@ -127,6 +128,7 @@ static void update_general_status(struct f2fs_sb_info *sbi)
 	si->cur_ckpt_time = sbi->cprc_info.cur_time;
 	si->peak_ckpt_time = sbi->cprc_info.peak_time;
 	spin_unlock(&sbi->cprc_info.stat_lock);
+#endif
 	si->total_count = (int)sbi->user_block_count / sbi->blocks_per_seg;
 	si->rsvd_segs = reserved_segments(sbi);
 	si->overp_segs = overprovision_segments(sbi);
@@ -152,14 +154,16 @@ static void update_general_status(struct f2fs_sb_info *sbi)
 		si->node_pages = NODE_MAPPING(sbi)->nrpages;
 	if (sbi->meta_inode)
 		si->meta_pages = META_MAPPING(sbi)->nrpages;
-	si->nats = NM_I(sbi)->nat_cnt;
-	si->dirty_nats = NM_I(sbi)->dirty_nat_cnt;
+	si->nats = NM_I(sbi)->nat_cnt[TOTAL_NAT];
+	si->dirty_nats = NM_I(sbi)->nat_cnt[DIRTY_NAT];
 	si->sits = MAIN_SEGS(sbi);
 	si->dirty_sits = SIT_I(sbi)->dirty_sentries;
 	si->free_nids = NM_I(sbi)->nid_cnt[FREE_NID];
 	si->avail_nids = NM_I(sbi)->available_nids;
 	si->alloc_nids = NM_I(sbi)->nid_cnt[PREALLOC_NID];
+#ifdef CONFIG_MACH_XIAOMI
 	si->gc_booster = sbi->gc_booster;
+#endif
 	si->io_skip_bggc = sbi->io_skip_bggc;
 	si->other_skip_bggc = sbi->other_skip_bggc;
 	si->skipped_atomic_files[BG_GC] = sbi->skipped_atomic_files[BG_GC];
@@ -266,9 +270,10 @@ get_cache:
 	si->cache_mem += (NM_I(sbi)->nid_cnt[FREE_NID] +
 				NM_I(sbi)->nid_cnt[PREALLOC_NID]) *
 				sizeof(struct free_nid);
-	si->cache_mem += NM_I(sbi)->nat_cnt * sizeof(struct nat_entry);
-	si->cache_mem += NM_I(sbi)->dirty_nat_cnt *
-					sizeof(struct nat_entry_set);
+	si->cache_mem += NM_I(sbi)->nat_cnt[TOTAL_NAT] *
+				sizeof(struct nat_entry);
+	si->cache_mem += NM_I(sbi)->nat_cnt[DIRTY_NAT] *
+				sizeof(struct nat_entry_set);
 	si->cache_mem += si->inmem_pages * sizeof(struct inmem_pages);
 	for (i = 0; i < MAX_INO_ENTRY; i++)
 		si->cache_mem += sbi->im[i].ino_num * sizeof(struct ino_entry);
@@ -376,6 +381,10 @@ static int stat_show(struct seq_file *s, void *v)
 				si->meta_count[META_NAT]);
 		seq_printf(s, "  - ssa blocks : %u\n",
 				si->meta_count[META_SSA]);
+#ifndef CONFIG_MACH_XIAOMI
+		seq_printf(s, "GC calls: %d (BG: %d)\n",
+			   si->call_count, si->bg_gc);
+#else
 		seq_printf(s, "CP merge (Queued: %4d, Issued: %4d, Total: %4d, "
 				"Cur time: %4d(ms), Peak time: %4d(ms))\n",
 				si->nr_queued_ckpt, si->nr_issued_ckpt,
@@ -383,6 +392,7 @@ static int stat_show(struct seq_file *s, void *v)
 				si->peak_ckpt_time);
 		seq_printf(s, "GC calls: %d (BG: %d) (Boost: %d)\n",
 			   si->call_count, si->bg_gc, si->gc_booster);
+#endif
 		seq_printf(s, "  - data segments : %d (%d)\n",
 				si->data_segs, si->bg_data_segs);
 		seq_printf(s, "  - node segments : %d (%d)\n",

@@ -1050,6 +1050,16 @@ config CDSPRM_VTCM_DYNAMIC_DEBUG
 	  enabled, the vtcm partition details are sent to the CDSP via rpmsg
 	  channel.
 
+config QCOM_SYSMON_SUBSYSTEM_STATS
+	tristate "Qualcomm Technologies SysMon DSP subsystem stats"
+	depends on QCOM_SMEM
+	help
+	  sysMon subsystem stats driver exposes API to query DSP
+	  subsystem's load and power statistics stored in SMEM.
+	  SMEM region for each DSP subsystem is updated periodically
+	  by the respective subsystem. Power stats gets updated after
+	  DSP clock change event.
+
 config QCOM_WDT_CORE
 	tristate "Qualcomm Technologies, Inc. Watchdog Support"
 	depends on ARCH_QCOM
@@ -1061,6 +1071,15 @@ config QCOM_WDT_CORE
 	   only enables the framework, an individual Qualcomm Technologies, Inc.
 	   watchdog module must be loaded along with this for watchdog
 	   functionality.
+
+config QCOM_CX_IPEAK
+	tristate "Common driver to handle Cx iPeak limitation"
+	help
+	  Cx ipeak HW module is used to limit the current drawn by various
+	  subsystem blocks on Cx power rail. Each client needs to set their
+	  bit in tcsr register if it is going to cross its own threshold.
+	  If all clients are going to cross their thresholds then Cx ipeak
+	  hw module will raise an interrupt to cDSP block to throttle cDSP fmax.
 
 config QCOM_SOC_WATCHDOG
 	tristate "Qualcomm Technologies, Inc. Soc Watchdog"
@@ -1112,8 +1131,10 @@ config QCOM_WDOG_BITE_EARLY_PANIC
 config QCOM_WATCHDOG_BARK_TIME
 	depends on QCOM_WDT_CORE
 	int "Qualcomm Technologies, Inc. Watchdog bark time in ms"
-	default 20000
-	range 20000 20000
+	default 20000 if MACH_XIAOMI
+	range 20000 20000 if MACH_XIAOMI
+	default 11000
+	range 11000 11000
 	help
 	  The amount of time, in milliseconds, that should elapse after
 	  a watchdog timer reset before a bark interrupt is sent from the
@@ -1122,8 +1143,10 @@ config QCOM_WATCHDOG_BARK_TIME
 config QCOM_WATCHDOG_PET_TIME
 	depends on QCOM_WDT_CORE
 	int "Qualcomm Technologies, Inc. Watchdog pet time in ms"
-	default 15000
-	range 15000 15000
+	default 15000 if MACH_XIAOMI
+	range 15000 15000 if MACH_XIAOMI
+	default 9360
+	range 9360 9360
 	help
 	  The amount of time, in milliseconds, that should elapse before
 	  a watchdog pet is initiated to reset the watchdog timer to 0.
@@ -1327,12 +1350,17 @@ config MSM_SEB_RPMSG
 	  and is probed when Slate opens channel and removed when the
 	  channel is closed by remote processor.
 
-source "drivers/soc/qcom/icnss2/Kconfig"
-config DEBUG_POLICY_STATUS
-	bool "read debug policy status"
-	default n
+config SDX_EXT_IPC
+	tristate "QCOM external ipc driver"
 	help
-	  This driver read debug policy status using Qualcomm scm_call2 interface
+      This enables the module to help modem communicate with external
+      Application processor connected to Qualcomm Technologies, Inc
+      modem chipset. The modem and APQ can understand each other's
+      state by reading ipc gpios.
+
+      If unsure, say N.
+
+source "drivers/soc/qcom/icnss2/Kconfig"
 
 source "drivers/soc/qcom/gnsssirf/Kconfig"
 endmenu

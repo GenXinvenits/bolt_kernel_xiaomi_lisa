@@ -3,7 +3,6 @@
  *  linux/fs/proc/base.c
  *
  *  Copyright (C) 1991, 1992 Linus Torvalds
- *  Copyright (C) 2021 XiaoMi, Inc.
  *
  *  proc base directory handling functions
  *
@@ -96,13 +95,12 @@
 #include <linux/sched/stat.h>
 #include <linux/posix-timers.h>
 #include <linux/cpufreq_times.h>
+#if defined(CONFIG_TASK_DELAY_ACCT) && defined(CONFIG_MACH_XIAOMI)
+#include <linux/delayacct.h>
+#endif
 #include <trace/events/oom.h>
 #include "internal.h"
 #include "fd.h"
-
-#ifdef CONFIG_TASK_DELAY_ACCT
-#include <linux/delayacct.h>
-#endif
 
 #include "../../lib/kstrtox.h"
 
@@ -555,8 +553,17 @@ static int proc_oom_score(struct seq_file *m, struct pid_namespace *ns,
 {
 	unsigned long totalpages = totalram_pages() + total_swap_pages;
 	unsigned long points = 0;
+	long badness;
 
-	points = oom_badness(task, totalpages) * 1000 / totalpages;
+	badness = oom_badness(task, totalpages);
+	/*
+	 * Special case OOM_SCORE_ADJ_MIN for all others scale the
+	 * badness value into [0, 2000] range which we have been
+	 * exporting for a long time so userspace might depend on it.
+	 */
+	if (badness != LONG_MIN)
+		points = (1000 + badness * 1000 / (long)totalpages) * 2 / 3;
+
 	seq_printf(m, "%lu\n", points);
 
 	return 0;
@@ -777,7 +784,7 @@ static const struct file_operations proc_single_file_operations = {
 	.release	= single_release,
 };
 
-#ifdef CONFIG_TASK_DELAY_ACCT
+#if defined(CONFIG_TASK_DELAY_ACCT) && defined(CONFIG_MACH_XIAOMI)
 struct delay_struct {
 	u64 version;
 	u64 blkio_delay;      /* wait for sync block io completion */
@@ -887,7 +894,7 @@ static ssize_t mem_rw(struct file *file, char __user *buf,
 	flags = FOLL_FORCE | (write ? FOLL_WRITE : 0);
 
 	while (count > 0) {
-		int this_len = min_t(int, count, PAGE_SIZE);
+		size_t this_len = min_t(size_t, count, PAGE_SIZE);
 
 		if (write && copy_from_user(page, buf, this_len)) {
 			copied = -EFAULT;
@@ -2115,11 +2122,11 @@ static int map_files_d_revalidate(struct dentry *dentry, unsigned int flags)
 		goto out;
 
 	if (!dname_to_vma_addr(dentry, &vm_start, &vm_end)) {
-		status = down_read_killable(&mm->mmap_sem);
+		status = mmap_read_lock_killable(mm);
 		if (!status) {
 			exact_vma_exists = !!find_exact_vma(mm, vm_start,
 							    vm_end);
-			up_read(&mm->mmap_sem);
+			mmap_read_unlock(mm);
 		}
 	}
 
@@ -2166,7 +2173,7 @@ static int map_files_get_link(struct dentry *dentry, struct path *path)
 	if (rc)
 		goto out_mmput;
 
-	rc = down_read_killable(&mm->mmap_sem);
+	rc = mmap_read_lock_killable(mm);
 	if (rc)
 		goto out_mmput;
 
@@ -2177,7 +2184,7 @@ static int map_files_get_link(struct dentry *dentry, struct path *path)
 		path_get(path);
 		rc = 0;
 	}
-	up_read(&mm->mmap_sem);
+	mmap_read_unlock(mm);
 
 out_mmput:
 	mmput(mm);
@@ -2267,7 +2274,7 @@ static struct dentry *proc_map_files_lookup(struct inode *dir,
 		goto out_put_task;
 
 	result = ERR_PTR(-EINTR);
-	if (down_read_killable(&mm->mmap_sem))
+	if (mmap_read_lock_killable(mm))
 		goto out_put_mm;
 
 	result = ERR_PTR(-ENOENT);
@@ -2280,7 +2287,7 @@ static struct dentry *proc_map_files_lookup(struct inode *dir,
 				(void *)(unsigned long)vma->vm_file->f_mode);
 
 out_no_vma:
-	up_read(&mm->mmap_sem);
+	mmap_read_unlock(mm);
 out_put_mm:
 	mmput(mm);
 out_put_task:
@@ -2325,7 +2332,7 @@ proc_map_files_readdir(struct file *file, struct dir_context *ctx)
 	if (!mm)
 		goto out_put_task;
 
-	ret = down_read_killable(&mm->mmap_sem);
+	ret = mmap_read_lock_killable(mm);
 	if (ret) {
 		mmput(mm);
 		goto out_put_task;
@@ -2352,7 +2359,7 @@ proc_map_files_readdir(struct file *file, struct dir_context *ctx)
 		p = genradix_ptr_alloc(&fa, nr_files++, GFP_KERNEL);
 		if (!p) {
 			ret = -ENOMEM;
-			up_read(&mm->mmap_sem);
+			mmap_read_unlock(mm);
 			mmput(mm);
 			goto out_put_task;
 		}
@@ -2361,7 +2368,7 @@ proc_map_files_readdir(struct file *file, struct dir_context *ctx)
 		p->end = vma->vm_end;
 		p->mode = vma->vm_file->f_mode;
 	}
-	up_read(&mm->mmap_sem);
+	mmap_read_unlock(mm);
 	mmput(mm);
 
 	for (i = 0; i < nr_files; i++) {
@@ -2664,6 +2671,13 @@ out:
 }
 
 #ifdef CONFIG_SECURITY
+static int proc_pid_attr_open(struct inode *inode, struct file *file)
+{
+	file->private_data = NULL;
+	__mem_open(inode, file, PTRACE_MODE_READ_FSCREDS);
+	return 0;
+}
+
 static ssize_t proc_pid_attr_read(struct file * file, char __user * buf,
 				  size_t count, loff_t *ppos)
 {
@@ -2692,6 +2706,10 @@ static ssize_t proc_pid_attr_write(struct file * file, const char __user * buf,
 	struct task_struct *task;
 	void *page;
 	int rv;
+
+	/* A task may only write when it was the opener. */
+	if (file->private_data != current->mm)
+		return -EPERM;
 
 	rcu_read_lock();
 	task = pid_task(proc_pid(inode), PIDTYPE_PID);
@@ -2740,9 +2758,11 @@ out:
 }
 
 static const struct file_operations proc_pid_attr_operations = {
+	.open		= proc_pid_attr_open,
 	.read		= proc_pid_attr_read,
 	.write		= proc_pid_attr_write,
 	.llseek		= generic_file_llseek,
+	.release	= mem_release,
 };
 
 #define LSM_DIR_OPS(LSM) \
@@ -3264,9 +3284,11 @@ static ssize_t human_task_read(struct file *file, char __user *buf,
 
 	if (!task)
 		return -ESRCH;
+
 	human_task = task->human_task;
 	put_task_struct(task);
 	len = snprintf(buffer, sizeof(buffer), "%d\n", human_task);
+
 	return simple_read_from_buffer(buf, count, ppos, buffer, len);
 }
 
@@ -3281,6 +3303,7 @@ static ssize_t human_task_write(struct file *file, const char __user *buf,
 	memset(buffer, 0, sizeof(buffer));
 	if (count > sizeof(buffer) - 1)
 		count = sizeof(buffer) - 1;
+
 	if (copy_from_user(buffer, buf, count)) {
 		err = -EFAULT;
 		goto out;
@@ -3289,6 +3312,7 @@ static ssize_t human_task_write(struct file *file, const char __user *buf,
 	err = kstrtoint(strstrip(buffer), 0, &human_task);
 	if (err)
 		goto out;
+
 	if (human_task <  0 || human_task > 1000) {
 		err = -EINVAL;
 		goto out;
@@ -3297,9 +3321,11 @@ static ssize_t human_task_write(struct file *file, const char __user *buf,
 	task  = get_proc_task(file_inode(file));
 	if (!task)
 		return -ESRCH;
+
 	task_lock(task);
 	task->human_task = human_task;
 	task_unlock(task);
+
 out:
 	return err < 0 ? err : count;
 }
@@ -3421,6 +3447,9 @@ static const struct pid_entry tgid_base_stuff[] = {
 #ifdef CONFIG_SCHED_INFO
 	ONE("schedstat",  S_IRUGO, proc_pid_schedstat),
 #endif
+#if defined(CONFIG_TASK_DELAY_ACCT) && defined(CONFIG_MACH_XIAOMI)
+	REG("delay",      S_IRUGO, proc_delay_file_operations),
+#endif
 #ifdef CONFIG_LATENCYTOP
 	REG("latency",  S_IRUGO, proc_lstats_operations),
 #endif
@@ -3472,6 +3501,9 @@ static const struct pid_entry tgid_base_stuff[] = {
 #endif
 #ifdef CONFIG_PROC_PID_ARCH_STATUS
 	ONE("arch_status", S_IRUGO, proc_pid_arch_status),
+#endif
+#ifdef CONFIG_PERF_HUMANTASK
+	REG("human_task", S_IRUGO|S_IWUGO, proc_tid_set_human_task_operations),
 #endif
 };
 
@@ -3828,9 +3860,6 @@ static const struct pid_entry tid_base_stuff[] = {
 #ifdef CONFIG_SCHED_INFO
 	ONE("schedstat", S_IRUGO, proc_pid_schedstat),
 #endif
-#ifdef CONFIG_TASK_DELAY_ACCT
-	REG("delay",      S_IRUGO, proc_delay_file_operations),
-#endif
 #ifdef CONFIG_LATENCYTOP
 	REG("latency",  S_IRUGO, proc_lstats_operations),
 #endif
@@ -3872,9 +3901,6 @@ static const struct pid_entry tid_base_stuff[] = {
 #endif
 #ifdef CONFIG_CPU_FREQ_TIMES
 	ONE("time_in_state", 0444, proc_time_in_state_show),
-#endif
-#ifdef CONFIG_PERF_HUMANTASK
-	REG("human_task", S_IRUGO|S_IWUGO, proc_tid_set_human_task_operations),
 #endif
 };
 

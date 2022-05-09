@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2013-2021, Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  */
 #include <linux/fs.h>
 #include <linux/mutex.h>
@@ -3101,8 +3100,12 @@ int __init q6lsm_init(void)
 
 void q6lsm_exit(void)
 {
+	int i = 0;
 	lsm_delete_cal_data();
 
+	for (; i <= LSM_MAX_SESSION_ID; i++)
+		mutex_destroy(&lsm_common.common_client[i].cmd_lock);
+	mutex_destroy(&lsm_common.apr_lock);
 #ifdef CONFIG_DEBUG_FS
 	debugfs_remove_recursive(lsm_common.entry);
 	lsm_common.entry = NULL;

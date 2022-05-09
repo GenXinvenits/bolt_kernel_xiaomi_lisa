@@ -4,7 +4,9 @@ ccflags-y += -I$(srctree)/techpack/display/msm/sde
 ccflags-y += -I$(srctree)/techpack/display/rotator
 ccflags-y += -I$(srctree)/techpack/display/hdcp
 ccflags-y += -I$(srctree)/drivers/clk/qcom/
+ifdef CONFIG_MACH_XIAOMI
 ccflags-y += -I$(srctree)/techpack/display/msm/mi_disp
+endif
 
 msm_drm-$(CONFIG_DRM_MSM_DP) += dp/dp_altmode.o \
 	dp/dp_parser.o \
@@ -83,13 +85,14 @@ msm_drm-$(CONFIG_DRM_MSM_SDE) += sde/sde_crtc.o \
 	sde_dsc_helper.o \
 	sde_vdc_helper.o \
 	sde/sde_hw_rc.o \
-	sde_dbg.o \
-	sde_dbg_evtlog.o \
 
 msm_drm-$(CONFIG_DRM_SDE_VM) += sde/sde_vm_common.o \
 	sde/sde_vm_primary.o \
 	sde/sde_vm_trusted.o \
 	sde/sde_vm_msgq.o
+
+msm_drm-$(CONFIG_DEBUG_FS) += sde_dbg.o \
+	sde_dbg_evtlog.o \
 
 msm_drm-$(CONFIG_DRM_SDE_WB) += sde/sde_wb.o \
 	sde/sde_encoder_phys_wb.o
@@ -139,6 +142,7 @@ msm_drm-$(CONFIG_DRM_MSM) += \
 
 msm_drm-$(CONFIG_HDCP_QSEECOM) += ../hdcp/msm_hdcp.o \
 
+ifdef CONFIG_MACH_XIAOMI
 msm_drm-$(CONFIG_DRM_MSM) += \
 	mi_disp/mi_disp_notifier.o \
 	mi_disp/mi_disp_core.o \
@@ -156,6 +160,7 @@ msm_drm-$(CONFIG_DRM_MSM) += \
 	mi_disp/mi_sde_crtc.o \
 	mi_disp/mi_sde_encoder.o \
 	mi_disp/mi_cooling_device.o
+endif
 
 msm_drm-$(CONFIG_MSM_SDE_ROTATOR) += ../rotator/sde_rotator_dev.o \
 	../rotator/sde_rotator_core.o \

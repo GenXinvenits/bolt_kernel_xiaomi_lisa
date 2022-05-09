@@ -1,6 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
 /* Copyright (c) 2011-2014 PLUMgrid, http://plumgrid.com
- * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of version 2 of the GNU General Public
@@ -1297,8 +1296,8 @@ union bpf_attr {
  * 	Return
  * 		The return value depends on the result of the test, and can be:
  *
- *		* 0, if current task belongs to the cgroup2.
- *		* 1, if current task does not belong to the cgroup2.
+ *		* 1, if current task belongs to the cgroup2.
+ *		* 0, if current task does not belong to the cgroup2.
  * 		* A negative error code, if an error occurred.
  *
  * int bpf_skb_change_tail(struct sk_buff *skb, u32 len, u64 flags)
@@ -2267,7 +2266,7 @@ union bpf_attr {
  * int bpf_sk_select_reuseport(struct sk_reuseport_md *reuse, struct bpf_map *map, void *key, u64 flags)
  *	Description
  *		Select a **SO_REUSEPORT** socket from a
- *		**BPF_MAP_TYPE_REUSEPORT_ARRAY** *map*.
+ *		**BPF_MAP_TYPE_REUSEPORT_SOCKARRAY** *map*.
  *		It checks the selected socket is matching the incoming
  *		request in the socket buffer.
  *	Return
@@ -3095,7 +3094,8 @@ struct bpf_sock {
 	__u32 src_ip4;
 	__u32 src_ip6[4];
 	__u32 src_port;		/* host byte order */
-	__u32 dst_port;		/* network byte order */
+	__be16 dst_port;	/* network byte order */
+	__u16 :16;		/* zero padding */
 	__u32 dst_ip4;
 	__u32 dst_ip6[4];
 	__u32 state;
@@ -3381,11 +3381,9 @@ struct bpf_sock_ops {
 	__u64 bytes_received;
 	__u64 bytes_acked;
 	__bpf_md_ptr(struct bpf_sock *, sk);
-	// XIAOMI: Add by zhoulei8 --start
 	__u32 sk_uid;
 	__u32 voip_daddr;
 	__u32 voip_dport;
-	// XIAOMI: Add by zhoulei8 --end
 };
 
 /* Definitions for bpf_sock_ops_cb_flags */
@@ -3450,8 +3448,9 @@ enum {
 					 */
 	BPF_SOCK_OPS_RTT_CB,		/* Called on every RTT.
 					 */
-	// XIAOMI: Add by zhoulei8
-	BPF_SOCK_OPS_VOIP_CB,		/* Called on every udp states. */
+
+	BPF_SOCK_OPS_VOIP_CB,		/* Called on every udp states. 
+					*/
 };
 
 /* List of TCP states. There is a build check in net/ipv4/tcp.c to detect

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #include <linux/module.h>
 #include <linux/slab.h>
@@ -44,6 +44,7 @@
 #endif
 
 #define SESSION_TYPE_RX 0
+#define COPP_VOL_DEFAULT 0x2000
 
 /* ENUM for adm_status */
 enum adm_cal_status {
@@ -51,8 +52,11 @@ enum adm_cal_status {
 	ADM_STATUS_MAX,
 };
 
+#ifdef CONFIG_MACH_XIAOMI
 static bool is_usb_timeout;
 static bool close_usb;
+#endif
+
 struct adm_copp {
 
 	atomic_t id[AFE_MAX_PORTS][MAX_COPPS_PER_PORT];
@@ -114,6 +118,7 @@ struct adm_ctl {
 	int tx_port_id;
 	bool hyp_assigned;
 	int fnn_app_type;
+	bool is_channel_swapped;
 };
 
 static struct adm_ctl			this_adm;
@@ -291,7 +296,7 @@ static int adm_get_copp_id(int port_idx, int copp_idx)
 }
 
 static int adm_get_idx_if_single_copp_exists(int port_idx,
-			int topology, int mode,
+			int topology,
 			int rate, int bit_width,
 			uint32_t copp_token)
 {
@@ -302,8 +307,6 @@ static int adm_get_idx_if_single_copp_exists(int port_idx,
 	for (idx = 0; idx < MAX_COPPS_PER_PORT; idx++)
 		if ((topology ==
 			atomic_read(&this_adm.copp.topology[port_idx][idx])) &&
-			(mode ==
-			 atomic_read(&this_adm.copp.mode[port_idx][idx])) &&
 			(rate ==
 			 atomic_read(&this_adm.copp.rate[port_idx][idx])) &&
 			(bit_width ==
@@ -325,7 +328,7 @@ static int adm_get_idx_if_copp_exists(int port_idx, int topology, int mode,
 
 	if (copp_token)
 		return adm_get_idx_if_single_copp_exists(port_idx,
-				topology, mode,
+				topology,
 				rate, bit_width,
 				copp_token);
 
@@ -897,88 +900,6 @@ exit:
 	return rc;
 }
 EXPORT_SYMBOL(adm_set_custom_chmix_cfg);
-
-#ifdef CONFIG_MSM_CSPL
-int crus_adm_set_params(int port_id, int copp_idx, uint32_t module_id,
-			 uint32_t param_id, char *params,
-			 uint32_t params_length)
-{
-	struct param_hdr_v3 param_hdr;
-	int port_idx = 0;
-	int rc  = 0;
-
-	pr_info("[CSPL] %s: port_idx: 0x%x, copp_idx: %d, module: 0x%x, len: %d\n",
-			__func__, port_idx, copp_idx, module_id, params_length);
-
-	port_id = q6audio_convert_virtual_to_portid(port_id);
-	port_idx = adm_validate_and_get_port_index(port_id);
-
-	if (port_idx < 0) {
-		pr_err("[CSPL] %s: Invalid port_id %#x\n", __func__, port_id);
-		goto fail_cmd;
-	}
-
-	if (copp_idx < 0 || copp_idx >= MAX_COPPS_PER_PORT) {
-		pr_err("[CSPL] %s: Invalid copp_num: %d\n", __func__, copp_idx);
-		goto fail_cmd;
-	}
-
-	memset(&param_hdr, 0, sizeof(param_hdr));
-
-	param_hdr.module_id = module_id;
-	param_hdr.instance_id = INSTANCE_ID_0;
-	param_hdr.param_id = param_id;
-	param_hdr.param_size = params_length;
-
-	atomic_set(&this_adm.copp.stat[port_idx][copp_idx], -1);
-
-	pr_info("[CSPL] %s: port_idx: 0x%x, copp_idx: %d, copp rate: %d, len: %d\n",
-			__func__, port_idx, copp_idx,
-			atomic_read(&this_adm.copp.rate[port_idx][copp_idx]),
-			params_length);
-
-	rc = adm_pack_and_set_one_pp_param(port_id, copp_idx, param_hdr,
-					   (uint8_t *) params);
-	if (rc)
-		pr_err("%s: Failed to set media format configuration data, err %d\n",
-		       __func__, rc);
-
-fail_cmd:
-	return 0;
-}
-EXPORT_SYMBOL(crus_adm_set_params);
-
-int crus_adm_get_params(int port_id, int copp_idx, uint32_t module_id,
-			uint32_t param_id, char *params,
-			uint32_t params_length, uint32_t client_id)
-{
-	int ret = 0;
-	struct param_hdr_v3 param_hdr;
-
-	pr_info("[CSPL] %s: Enter, port_id %x, copp_idx: %d, len: %d\n",
-		__func__, port_id, copp_idx, params_length);
-
-	memset(&param_hdr, 0, sizeof(param_hdr));
-	param_hdr.module_id = module_id;
-	param_hdr.instance_id = INSTANCE_ID_0;
-	param_hdr.param_id = param_id;
-	param_hdr.param_size = params_length;
-	ret = adm_get_pp_params(port_id, copp_idx,
-				client_id, NULL, &param_hdr,
-				params);
-	if (ret) {
-		pr_err("%s: get parameters failed ret:%d\n", __func__, ret);
-		ret = -EINVAL;
-		goto done;
-	}
-
-done:
-	pr_debug("%s: Exit, ret = %d\n", __func__, ret);
-
-	return ret;
-}
-EXPORT_SYMBOL(crus_adm_get_params);
-#endif
 
 /*
  * adm_apr_send_pkt : returns 0 on success, negative otherwise.
@@ -1682,7 +1603,7 @@ static int32_t adm_callback(struct apr_client_data *data, void *priv)
 	adm_callback_debug_print(data);
 	if (data->payload_size >= sizeof(uint32_t)) {
 		copp_idx = (data->token) & 0XFF;
-		port_idx = ((data->token) >> 16) & 0xFF;
+		port_idx = ((data->token) >> 16) & 0xFFFF;
 		client_id = ((data->token) >> 8) & 0xFF;
 		if (port_idx < 0 || port_idx >= AFE_MAX_PORTS) {
 			pr_err("%s: Invalid port idx %d token %d\n",
@@ -1868,15 +1789,17 @@ static int32_t adm_callback(struct apr_client_data *data, void *priv)
 				   open->copp_id);
 			pr_debug("%s: coppid rxed=%d\n", __func__,
 				 open->copp_id);
+#ifdef CONFIG_MACH_XIAOMI
 			if (is_usb_timeout && (IDX_AFE_PORT_ID_USB_RX == port_idx)) {
 				pr_debug("%s:usb port need be closed\n", __func__);
 				close_usb = true;
 			}
+
 			if (close_usb && (IDX_AFE_PORT_ID_USB_RX != port_idx)) {
 				pr_debug("%s: enable usb port\n", __func__);
 				is_usb_timeout = false;
 			}
-
+#endif
 			wake_up(&this_adm.copp.wait[port_idx][copp_idx]);
 			}
 			break;
@@ -2545,7 +2468,7 @@ static void send_adm_cal(int fedai_id, int port_id, int copp_idx, int path, int 
 				perf_mode, app_type, acdb_id, sample_rate);
 		/* send persistent cal only in case of record */
 		if (path == TX_DEVICE)
-			send_adm_cal_type(fedai_id, ADM_LSM_AUDPROC_PERSISTENT_CAL, path,
+			send_adm_cal_type(fedai_id, ADM_AUDPROC_PERSISTENT_CAL, path,
 				  port_id, copp_idx, perf_mode, app_type,
 				  acdb_id, sample_rate);
 	} else {
@@ -2652,6 +2575,7 @@ fail_cmd:
 }
 EXPORT_SYMBOL(adm_connect_afe_port);
 
+#ifdef CONFIG_MACH_XIAOMI
 /**
  * adm_set_device_model -
  *        command to send device model to adsp
@@ -2706,6 +2630,7 @@ fail_cmd:
 	return ret;
 }
 EXPORT_SYMBOL(adm_set_device_model);
+#endif
 
 int adm_arrange_mch_map(struct adm_cmd_device_open_v5 *open, int path,
 			 int channel_mode, int port_idx)
@@ -2869,9 +2794,8 @@ static int adm_arrange_mch_map_v8(
 		goto non_mch_path;
 	};
 
-	if ((ep_payload->dev_num_channel > 2) &&
-		(port_channel_map[port_idx].set_channel_map ||
-		 multi_ch_maps[idx].set_channel_map)) {
+	if (port_channel_map[port_idx].set_channel_map ||
+		 multi_ch_maps[idx].set_channel_map) {
 		if (port_channel_map[port_idx].set_channel_map)
 			memcpy(ep_payload->dev_channel_mapping,
 				port_channel_map[port_idx].channel_mapping,
@@ -3365,11 +3289,11 @@ int adm_open_v2(int port_id, int path, int rate, int channel_mode, int topology,
 	     struct msm_ec_ref_port_cfg *ec_ref_port_cfg,
 	    struct msm_pcm_channel_mixer *ec_ref_chmix_cfg)
 {
-	struct adm_cmd_device_open_v5	open;
-	struct adm_cmd_device_open_v6	open_v6;
-	struct adm_cmd_device_open_v8	open_v8;
-	struct adm_device_endpoint_payload ep1_payload;
-	struct adm_device_endpoint_payload ep2_payload;
+	struct adm_cmd_device_open_v5	open = {0};
+	struct adm_cmd_device_open_v6	open_v6 = {0};
+	struct adm_cmd_device_open_v8	open_v8 = {0};
+	struct adm_device_endpoint_payload ep1_payload = {0};
+	struct adm_device_endpoint_payload ep2_payload = {0};
 	int ep1_payload_size = 0;
 	int ep2_payload_size = 0;
 	int ret = 0;
@@ -3384,8 +3308,8 @@ int adm_open_v2(int port_id, int path, int rate, int channel_mode, int topology,
 					ec_ref_port_cfg->port_id :
 					this_adm.ec_ref_rx;
 
-	int ec_ref_ch = ec_ref_port_cfg ?
-					ec_ref_port_cfg->ch :
+	int ec_ref_ch = ec_ref_chmix_cfg ?
+					ec_ref_chmix_cfg->input_channel :
 					this_adm.num_ec_ref_rx_chans;
 
 	int ec_ref_bit = ec_ref_port_cfg ?
@@ -3396,18 +3320,19 @@ int adm_open_v2(int port_id, int path, int rate, int channel_mode, int topology,
 					ec_ref_port_cfg->sampling_rate :
 					this_adm.ec_ref_rx_sampling_rate;
 
-	pr_err("%s:port %#x path:%d rate:%d channel_mode:%d perf_mode:%d topology 0x%x bit_width %d \
-		app_type %d acdb_id %d session_type %d passthr_mode %d \n",
-			__func__, port_id, path, rate, channel_mode, perf_mode,
-				topology, bit_width, app_type, acdb_id, session_type, passthr_mode);
+	pr_debug("%s:port %#x path:%d rate:%d mode:%d perf_mode:%d,topo_id %d\n",
+		 __func__, port_id, path, rate, channel_mode, perf_mode,
+		 topology);
 
 	port_id = q6audio_convert_virtual_to_portid(port_id);
 	port_idx = adm_validate_and_get_port_index(port_id);
 
+#ifdef CONFIG_MACH_XIAOMI
 	if (is_usb_timeout && (AFE_PORT_ID_USB_RX == port_id)) {
 		pr_err("%s: USB RX timeout return\n", __func__);
 		return -EINVAL;
 	}
+#endif
 
 	if (port_idx < 0) {
 		pr_err("%s: Invalid port_id 0x%x\n", __func__, port_id);
@@ -3446,6 +3371,8 @@ int adm_open_v2(int port_id, int path, int rate, int channel_mode, int topology,
 		    (topology == DS2_ADM_COPP_TOPOLOGY_ID) ||
 		    (topology == SRS_TRUMEDIA_TOPOLOGY_ID))
 			topology = DEFAULT_COPP_TOPOLOGY;
+	} else if (perf_mode == LOW_LATENCY_PCM_NOPROC_MODE) {
+		flags = ADM_LOW_LATENCY_NPROC_DEVICE_SESSION;
 	} else {
 		if ((path == ADM_PATH_COMPRESSED_RX) ||
 		    (path == ADM_PATH_COMPRESSED_TX))
@@ -3596,11 +3523,10 @@ int adm_open_v2(int port_id, int path, int rate, int channel_mode, int topology,
 				if (ec_ref_ch != 0) {
 					open_v8.endpoint_id_2 =
 						ec_ref_port_id;
-					ec_ref_port_id = AFE_PORT_INVALID;
+					this_adm.ec_ref_rx = AFE_PORT_INVALID;
 				} else {
-					pr_err("%s: EC channels not set %d\n",
+					pr_warn("%s: EC channels not set %d\n",
 						__func__, ec_ref_ch);
-					return -EINVAL;
 				}
 			}
 
@@ -4227,12 +4153,13 @@ int adm_close(int port_id, int perf_mode, int copp_idx)
 	struct cal_block_data *cal_block = NULL;
 	struct audio_cal_info_audproc *audproc_cal_info = NULL;
 	int cal_index = ADM_AUDPROC_PERSISTENT_CAL;
-
+#ifdef CONFIG_MACH_XIAOMI
 	int usb_copp_id = RESET_COPP_ID;
 	int usb_copp_idx = 0;
 	struct apr_hdr usb_close;
+#endif
 
-	pr_err("%s: port_id=0x%x perf_mode: %d copp_idx: %d\n", __func__,
+	pr_debug("%s: port_id=0x%x perf_mode: %d copp_idx: %d\n", __func__,
 		 port_id, perf_mode, copp_idx);
 
 	port_id = q6audio_convert_virtual_to_portid(port_id);
@@ -4299,6 +4226,7 @@ int adm_close(int port_id, int perf_mode, int copp_idx)
 					ADM_MEM_MAP_INDEX_SOURCE_TRACKING], 0);
 		}
 
+#ifdef CONFIG_MACH_XIAOMI
 		if (close_usb) {
 			for (usb_copp_idx = 0; usb_copp_idx < 8; usb_copp_idx++) {
 				usb_copp_id = adm_get_copp_id(IDX_AFE_PORT_ID_USB_RX, usb_copp_idx);
@@ -4348,6 +4276,7 @@ int adm_close(int port_id, int perf_mode, int copp_idx)
 				return 0;
 			}
 		}
+#endif
 
 		close.hdr_field = APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD,
 						APR_HDR_LEN(APR_HDR_SIZE),
@@ -4523,7 +4452,6 @@ EXPORT_SYMBOL(adm_close);
 int send_rtac_audvol_cal(void)
 {
 	int ret = 0;
-	int ret2 = 0;
 	int i = 0;
 	int copp_idx, port_idx, acdb_id, app_id, path;
 	struct cal_block_data *cal_block = NULL;
@@ -4569,7 +4497,7 @@ int send_rtac_audvol_cal(void)
 				continue;
 			}
 
-			ret2 = adm_remap_and_send_cal_block(ADM_RTAC_AUDVOL_CAL,
+			ret = adm_remap_and_send_cal_block(ADM_RTAC_AUDVOL_CAL,
 				rtac_adm_data.device[i].afe_port,
 				copp_idx, cal_block,
 				atomic_read(&this_adm.copp.
@@ -4578,13 +4506,12 @@ int send_rtac_audvol_cal(void)
 				audvol_cal_info->acdb_id,
 				atomic_read(&this_adm.copp.
 				rate[port_idx][copp_idx]));
-			if (ret2 < 0) {
+			if (ret < 0) {
 				pr_debug("%s: remap and send failed for copp Id %d, acdb id %d, app type %d, path %d\n",
 					__func__, rtac_adm_data.device[i].copp,
 					audvol_cal_info->acdb_id,
 					audvol_cal_info->app_type,
 					audvol_cal_info->path);
-				ret = ret2;
 			}
 		}
 	}
@@ -5426,6 +5353,7 @@ int adm_wait_timeout(int port_id, int copp_idx, int wait_time)
 	pr_debug("%s: return %d\n", __func__, ret);
 	if (ret != 0)
 		ret = -EINTR;
+
 end:
 	pr_debug("%s: return %d--\n", __func__, ret);
 	return ret;
@@ -5486,8 +5414,10 @@ int adm_store_cal_data(int port_id, int copp_idx, int path, int perf_mode,
 	mutex_lock(&this_adm.cal_data[cal_index]->lock);
 	cal_block = adm_find_cal(cal_index, get_cal_path(path), app_type,
 				acdb_id, sample_rate);
-	if (cal_block == NULL)
+	if (cal_block == NULL) {
+		pr_err("%s: can't find cal block!\n", __func__);
 		goto unlock;
+	}
 
 	if (cal_block->cal_data.size <= 0) {
 		pr_debug("%s: No ADM cal send for port_id = 0x%x!\n",
@@ -5687,6 +5617,13 @@ int adm_swap_speaker_channels(int port_id, int copp_idx,
 			(uint16_t) PCM_CHANNEL_FR;
 	}
 
+	if(spk_swap || this_adm.is_channel_swapped) {
+		/* Before applying swap channel, mute the device to avoid pop */
+		ret = adm_set_volume(port_id, copp_idx, 0);
+		/* Add delay after mute as per hw requirement */
+		msleep(50);
+	}
+
 	ret = adm_pack_and_set_one_pp_param(port_id, copp_idx, param_hdr,
 					    (u8 *) &mfc_cfg);
 	if (ret < 0) {
@@ -5694,6 +5631,12 @@ int adm_swap_speaker_channels(int port_id, int copp_idx,
 		       __func__, port_id, ret);
 		return ret;
 	}
+
+	if(spk_swap || this_adm.is_channel_swapped) {
+		/* After applying swap channel, reset to default */
+		ret = adm_set_volume(port_id, copp_idx, COPP_VOL_DEFAULT);
+	}
+	this_adm.is_channel_swapped = spk_swap;
 
 	pr_debug("%s: mfc_cfg Set params returned success", __func__);
 	return 0;
@@ -6076,6 +6019,7 @@ int __init adm_init(void)
 	this_adm.tx_port_id = -1;
 	this_adm.hyp_assigned = false;
 	this_adm.fnn_app_type = -1;
+	this_adm.is_channel_swapped = false;
 	init_waitqueue_head(&this_adm.matrix_map_wait);
 	init_waitqueue_head(&this_adm.adm_wait);
 	mutex_init(&this_adm.adm_apr_lock);
@@ -6097,8 +6041,10 @@ int __init adm_init(void)
 	this_adm.sourceTrackingData.memmap.kvaddr = NULL;
 	this_adm.sourceTrackingData.memmap.paddr = 0;
 	this_adm.sourceTrackingData.apr_cmd_status = -1;
+#ifdef CONFIG_MACH_XIAOMI
 	is_usb_timeout = false;
 	close_usb = false;
+#endif
 
 	return 0;
 }

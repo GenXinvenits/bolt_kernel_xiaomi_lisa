@@ -3,7 +3,6 @@
  * QTI Secure Execution Environment Communicator (QSEECOM) driver
  *
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 #define pr_fmt(fmt) "QSEECOM: %s: " fmt, __func__
@@ -471,6 +470,8 @@ static void __qseecom_free_coherent_buf(uint32_t size,
 #define QSEECOM_SCM_EBUSY_WAIT_MS 30
 #define QSEECOM_SCM_EBUSY_MAX_RETRY 67
 
+#define QSEE_RESULT_FAIL_APP_BUSY 315
+
 static int __qseecom_scm_call2_locked(uint32_t smc_id, struct scm_desc *desc)
 {
 	int ret = 0;
@@ -478,14 +479,14 @@ static int __qseecom_scm_call2_locked(uint32_t smc_id, struct scm_desc *desc)
 
 	do {
 		ret = qcom_scm_qseecom_call_noretry(smc_id, desc);
-		if (ret == -EBUSY) {
+		if ((ret == -EBUSY) || (desc && (desc->ret[0] == -QSEE_RESULT_FAIL_APP_BUSY))) {
 			mutex_unlock(&app_access_lock);
 			msleep(QSEECOM_SCM_EBUSY_WAIT_MS);
 			mutex_lock(&app_access_lock);
 		}
 		if (retry_count == 33)
 			pr_warn("secure world has been busy for 1 second!\n");
-	} while (ret == -EBUSY &&
+	} while (((ret == -EBUSY) || (desc && (desc->ret[0] == -QSEE_RESULT_FAIL_APP_BUSY))) &&
 			(retry_count++ < QSEECOM_SCM_EBUSY_MAX_RETRY));
 	return ret;
 }
@@ -3742,8 +3743,8 @@ static int __qseecom_send_cmd(struct qseecom_dev_handle *data,
 				(uint32_t)(__qseecom_uvirt_to_kphys(
 				data, (uintptr_t)req->resp_buf));
 		} else {
-			send_data_req.req_ptr = *((uint32_t *)(&req->cmd_req_buf));
-			send_data_req.rsp_ptr = *((uint32_t *)(&req->resp_buf));
+			send_data_req.req_ptr = (uintptr_t)req->cmd_req_buf;
+			send_data_req.rsp_ptr = (uintptr_t)req->resp_buf;
 		}
 
 		send_data_req.req_len = req->cmd_req_len;

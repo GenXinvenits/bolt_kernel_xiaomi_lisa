@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
+ * Copyright (c) 2022, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #ifndef __Q6AFE_V2_H__
 #define __Q6AFE_V2_H__
@@ -306,7 +306,9 @@ enum {
 	IDX_RT_PROXY_PORT_002_TX,
 	/* IDX 212 */
 	IDX_HDMI_RX_MS,
+#ifdef CONFIG_MACH_XIAOMI
 	IDX_AFE_PORT_ID_PSEUDOPORT_01,
+#endif
 	/* IDX 213-> 228 */
 	IDX_AFE_PORT_ID_SEPTENARY_TDM_RX_0,
 	IDX_AFE_PORT_ID_SEPTENARY_TDM_TX_0,
@@ -592,8 +594,12 @@ int afe_tdm_port_start(u16 port_id, struct afe_tdm_port_config *tdm_port,
 void afe_set_routing_callback(routing_cb cb);
 int afe_port_send_logging_cfg(u16 port_id,
 	struct afe_param_id_port_data_log_disable_t *log_disable);
+int afe_port_send_afe_limiter_param(u16 port_id,
+	struct afe_param_id_port_afe_limiter_disable_t *disable_limiter);
 int afe_get_av_dev_drift(struct afe_param_id_dev_timing_stats *timing_stats,
 		u16 port);
+int afe_set_lpass_clk_cfg_ext_mclk_v2(int index,
+	struct afe_param_id_clock_set_v2_t *dyn_mclk_cfg, uint32_t mclk_freq);
 int afe_get_sp_rx_tmax_xmax_logging_data(
 		struct afe_sp_rx_tmax_xmax_logging_param *xt_logging,
 		u16 port_id);
@@ -601,11 +607,6 @@ int afe_cal_init_hwdep(void *card);
 int afe_send_port_island_mode(u16 port_id);
 int afe_send_port_power_mode(u16 port_id);
 int afe_send_port_vad_cfg_params(u16 port_id);
-#ifdef CONFIG_MSM_CSPL
-int afe_apr_send_pkt_crus(void *data, int index, int set);
-int crus_afe_port_close(u16 port_id);
-int crus_afe_port_start(u16 port_id);
-#endif
 int afe_send_cmd_wakeup_register(void *handle, bool enable);
 void afe_register_wakeup_irq_callback(
 	void (*afe_cb_wakeup_irq)(void *handle));
@@ -680,5 +681,7 @@ int afe_get_spk_v_vali_flag(void);
 void afe_get_spk_v_vali_sts(int *spk_v_vali_sts);
 void afe_set_spk_initial_cal(int initial_cal);
 void afe_set_spk_v_vali_flag(int v_vali_flag);
+#ifdef CONFIG_MACH_XIAOMI
 int afe_send_data(phys_addr_t buf_addr_p, u32 mem_map_handle, int bytes);
+#endif
 #endif /* __Q6AFE_V2_H__ */

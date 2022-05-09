@@ -7,36 +7,8 @@
 #ifndef _MI_DISP_H_
 #define _MI_DISP_H_
 
-#if defined(__KERNEL__)
-
 #include <linux/types.h>
 #include <asm/ioctl.h>
-
-#elif defined(__linux__)
-
-#include <linux/types.h>
-#include <asm/ioctl.h>
-
-#else /* One of the BSDs */
-
-#include <stdint.h>
-#include <sys/ioccom.h>
-#include <sys/types.h>
-typedef int8_t   __s8;
-typedef uint8_t  __u8;
-typedef int16_t  __s16;
-typedef uint16_t __u16;
-typedef int32_t  __s32;
-typedef uint32_t __u32;
-typedef int64_t  __s64;
-typedef uint64_t __u64;
-typedef size_t   __kernel_size_t;
-
-#endif
-
-#if defined(__cplusplus)
-extern "C" {
-#endif
 
 enum disp_display_type {
 	MI_DISP_PRIMARY = 0,
@@ -227,7 +199,6 @@ enum disp_feature_id {
 	DISP_FEATURE_MAX,
 };
 
-#if defined(__KERNEL__)
 static inline int is_support_disp_id(int disp_id)
 {
 	if (MI_DISP_PRIMARY <= disp_id && disp_id < MI_DISP_MAX)
@@ -366,111 +337,6 @@ static inline const char *get_disp_feature_id_name(int feature_id)
 		return "Unknown";
 	}
 }
-#else
-static inline int isSupportDispId(int disp_id)
-{
-	if (MI_DISP_PRIMARY <= disp_id && disp_id < MI_DISP_MAX)
-		return 1;
-	else
-		return 0;
-}
-
-static inline const char *getDispIdName(int disp_id)
-{
-	switch (disp_id) {
-	case MI_DISP_PRIMARY:
-		return "primary";
-	case MI_DISP_SECONDARY:
-		return "secondary";
-	default:
-		return "Unknown";
-	}
-}
-
-static inline int isSupportDispEventType(__u32 event_type)
-{
-	if (MI_DISP_EVENT_POWER <= event_type && event_type < MI_DISP_EVENT_MAX)
-		return 1;
-	else
-		return 0;
-}
-
-static inline const char *getDispEventTypeName(__u32 event_type)
-{
-	switch (event_type) {
-	case MI_DISP_EVENT_POWER:
-		return "Power";
-	case MI_DISP_EVENT_BACKLIGHT:
-		return "Backlight";
-	case MI_DISP_EVENT_FOD:
-		return "Fod";
-	case MI_DISP_EVENT_DOZE:
-		return "Doze";
-	case MI_DISP_EVENT_FPS:
-		return "Fps";
-	case MI_DISP_EVENT_BRIGHTNESS_CLONE:
-		return "brightness_clone";
-	case MI_DISP_EVENT_BIC:
-		return "Bic";
-	default:
-		return "Unknown";
-	}
-}
-
-static inline int isSupportDispFeatureId(int feature_id)
-{
-	if (DISP_FEATURE_DIMMING <= feature_id && feature_id < DISP_FEATURE_MAX)
-		return 1;
-	else
-		return 0;
-}
-
-static inline const char *getDispFeatureIdName(int feature_id)
-{
-	switch (feature_id) {
-	case DISP_FEATURE_DIMMING:
-		return "dimming";
-	case DISP_FEATURE_HBM:
-		return "hbm";
-	case DISP_FEATURE_HBM_FOD:
-		return "hbm_fod";
-	case DISP_FEATURE_DOZE_BRIGHTNESS:
-		return "doze_brightness";
-	case DISP_FEATURE_FOD_CALIBRATION_BRIGHTNESS:
-		return "fod_calibration_brightness";
-	case DISP_FEATURE_FOD_CALIBRATION_HBM:
-		return "fod_calibration_hbm";
-	case DISP_FEATURE_FLAT_MODE:
-		return "flat_mode";
-	case DISP_FEATURE_CRC:
-		return "crc";
-	case DISP_FEATURE_DC:
-		return "dc_mode";
-	case DISP_FEATURE_LOCAL_HBM:
-		return "local_hbm";
-	case DISP_FEATURE_SENSOR_LUX:
-		return "sensor_lux";
-	case DISP_FEATURE_LOW_BRIGHTNESS_FOD:
-		return "low_brightness_fod";
-	case DISP_FEATURE_FP_STATUS:
-		return "fp_status";
-	case DISP_FEATURE_FOLD_STATUS:
-		return "fold_status";
-	case DISP_FEATURE_SPR_RENDER:
-		return "spr_render";
-	case DISP_FEATURE_AOD_TO_NORMAL:
-		return "aod_to_normal";
-	case DISP_FEATURE_COLOR_INVERT:
-		return "color_invert";
-	case DISP_FEATURE_DC_BACKLIGHT:
-		return "dc_backlight";
-	default:
-		return "Unknown";
-	}
-}
-
-#endif
-
 
 #define MI_DISP_FLAG_BLOCK     0x0000
 #define MI_DISP_FLAG_NONBLOCK  0x0001
@@ -494,9 +360,4 @@ static inline const char *getDispFeatureIdName(int feature_id)
 #define MI_DISP_IOCTL_GET_BRIGHTNESS       _IOR('D', 0x0B, struct disp_brightness_req)
 #define MI_DISP_IOCTL_GET_BIC              _IOWR('D', 0x0C, struct disp_bic_info_req)
 
-#if defined(__cplusplus)
-}
-#endif
-
 #endif /* _MI_DISP_H_ */
-

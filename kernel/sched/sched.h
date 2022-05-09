@@ -331,6 +331,8 @@ static inline int task_has_dl_policy(struct task_struct *p)
  */
 #define SCHED_FLAG_SUGOV	0x10000000
 
+#define SCHED_DL_FLAGS (SCHED_FLAG_RECLAIM | SCHED_FLAG_DL_OVERRUN | SCHED_FLAG_SUGOV)
+
 static inline bool dl_entity_is_special(struct sched_dl_entity *dl_se)
 {
 #ifdef CONFIG_CPU_FREQ_GOV_SCHEDUTIL
@@ -623,9 +625,6 @@ struct cfs_rq {
 
 	u64			exec_clock;
 	u64			min_vruntime;
-#ifdef CONFIG_PERF_HUMANTASK
-	u64			min_vruntimex;
-#endif
 #ifndef CONFIG_64BIT
 	u64			min_vruntime_copy;
 #endif
@@ -1092,6 +1091,9 @@ struct rq {
 #ifdef CONFIG_HAVE_SCHED_AVG_IRQ
 	struct sched_avg	avg_irq;
 #endif
+#ifdef CONFIG_SCHED_THERMAL_PRESSURE
+	struct sched_avg	avg_thermal;
+#endif
 	u64			idle_stamp;
 	u64			avg_idle;
 
@@ -1260,6 +1262,24 @@ static inline u64 rq_clock_task(struct rq *rq)
 	assert_clock_updated(rq);
 
 	return rq->clock_task;
+}
+
+/**
+ * By default the decay is the default pelt decay period.
+ * The decay shift can change the decay period in
+ * multiples of 32.
+ *  Decay shift		Decay period(ms)
+ *	0			32
+ *	1			64
+ *	2			128
+ *	3			256
+ *	4			512
+ */
+extern int sched_thermal_decay_shift;
+
+static inline u64 rq_clock_thermal(struct rq *rq)
+{
+	return rq_clock_task(rq) >> sched_thermal_decay_shift;
 }
 
 static inline void rq_clock_skip_update(struct rq *rq)

@@ -133,7 +133,7 @@ struct geni_i2c_dev {
 	bool req_chan;
 	bool first_resume;
 	bool gpi_reset;
-	bool disable_dma_mode;
+	bool prev_cancel_pending; //Halt cancel till IOS in good state
 };
 
 static struct geni_i2c_dev *gi2c_dev_dbg[MAX_SE];
@@ -171,7 +171,7 @@ struct geni_i2c_clk_fld {
 
 static struct geni_i2c_clk_fld geni_i2c_clk_map[] = {
 	{KHz(100), 7, 10, 11, 26},
-	{KHz(400), 2,  5, 12, 24},
+	{KHz(400), 2,  7, 10, 24},
 	{KHz(1000), 1, 3,  9, 18},
 };
 
@@ -241,14 +241,63 @@ err_ret:
 	gi2c->err = gi2c_log[err].err;
 }
 
+static int do_pending_cancel(struct geni_i2c_dev *gi2c)
+{
+	int timeout = 0;
+	u32 geni_ios = 0;
+
+	geni_ios = geni_read_reg_nolog(gi2c->base, SE_GENI_IOS);
+	if ((geni_ios & 0x3) != 0x3) {
+		GENI_SE_DBG(gi2c->ipcl, true, gi2c->dev,
+			"%s: Can't do pending cancel, IOS bad state: 0x%x\n",
+			__func__, geni_ios);
+		return -EINVAL;
+	}
+
+	if (gi2c->se_mode == GSI_ONLY) {
+		dmaengine_terminate_all(gi2c->tx_c);
+		gi2c->cfg_sent = 0;
+	} else {
+		reinit_completion(&gi2c->xfer);
+		geni_cancel_m_cmd(gi2c->base);
+		timeout = wait_for_completion_timeout(&gi2c->xfer, HZ);
+		if (!timeout) {
+			GENI_SE_DBG(gi2c->ipcl, true, gi2c->dev,
+				"%s:Pending Cancel failed\n", __func__);
+			reinit_completion(&gi2c->xfer);
+			geni_abort_m_cmd(gi2c->base);
+			timeout = wait_for_completion_timeout(&gi2c->xfer, HZ);
+			if (!timeout)
+				GENI_SE_DBG(gi2c->ipcl, true, gi2c->dev,
+					"%s:Abort failed\n", __func__);
+		}
+	}
+	gi2c->prev_cancel_pending = false;
+	GENI_SE_DBG(gi2c->ipcl, true, gi2c->dev,
+		"%s: Pending Cancel done\n", __func__);
+	return timeout;
+}
+
 static int geni_i2c_prepare(struct geni_i2c_dev *gi2c)
 {
+	u32 geni_ios = 0;
+
 	if (gi2c->se_mode == UNINITIALIZED) {
 		int proto = get_se_proto(gi2c->base);
 		u32 se_mode;
 
 		if (proto != I2C) {
 			dev_err(gi2c->dev, "Invalid proto %d\n", proto);
+			if (!gi2c->is_le_vm)
+				se_geni_resources_off(&gi2c->i2c_rsc);
+			return -ENXIO;
+		}
+
+		geni_ios = geni_read_reg_nolog(gi2c->base, SE_GENI_IOS);
+		if ((geni_ios & 0x3) != 0x3) { //SCL:b'1, SDA:b'0
+			GENI_SE_DBG(gi2c->ipcl, true, gi2c->dev,
+			"IO lines not in good state, Check power to slave\n");
+
 			if (!gi2c->is_le_vm)
 				se_geni_resources_off(&gi2c->i2c_rsc);
 			return -ENXIO;
@@ -921,6 +970,8 @@ static int geni_i2c_gsi_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[],
 		timeout = wait_for_completion_timeout(&gi2c->xfer,
 						gi2c->xfer_timeout);
 		if (!timeout) {
+			u32 geni_ios = 0;
+
 			GENI_SE_ERR(gi2c->ipcl, true, gi2c->dev,
 				"I2C gsi xfer timeout:%u flags:%d addr:0x%x\n",
 				gi2c->xfer_timeout, gi2c->cur->flags,
@@ -928,6 +979,15 @@ static int geni_i2c_gsi_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[],
 			geni_se_dump_dbg_regs(&gi2c->i2c_rsc, gi2c->base,
 						gi2c->ipcl);
 			gi2c->err = -ETIMEDOUT;
+
+			/* WAR: Set flag to mark cancel pending if IOS stuck */
+			geni_ios = geni_read_reg_nolog(gi2c->base, SE_GENI_IOS);
+			if ((geni_ios & 0x3) != 0x3) { //SCL:b'1, SDA:b'0
+				GENI_SE_ERR(gi2c->ipcl, true, gi2c->dev,
+					"%s: IO lines not in good state\n", __func__);
+					gi2c->prev_cancel_pending = true;
+					goto geni_i2c_gsi_cancel_pending;
+			}
 		}
 geni_i2c_err_prep_sg:
 		if (gi2c->err) {
@@ -950,6 +1010,7 @@ geni_i2c_err_prep_sg:
 			/* Resend cfg tre for every new message on shared se */
 			gi2c->cfg_sent = 0;
 
+geni_i2c_gsi_cancel_pending:
 		if (msgs[i].flags & I2C_M_RD)
 			geni_se_iommu_unmap_buf(rx_dev, &gi2c->rx_ph,
 				msgs[i].len, DMA_FROM_DEVICE);
@@ -973,6 +1034,7 @@ static int geni_i2c_xfer(struct i2c_adapter *adap,
 {
 	struct geni_i2c_dev *gi2c = i2c_get_adapdata(adap);
 	int i, ret = 0, timeout = 0;
+	u32 geni_ios = 0;
 
 	gi2c->err = 0;
 
@@ -993,6 +1055,22 @@ static int geni_i2c_xfer(struct i2c_adapter *adap,
 			pm_runtime_set_suspended(gi2c->dev);
 			return ret;
 		}
+	}
+
+	// WAR : Complete previous pending cancel cmd
+	if (gi2c->prev_cancel_pending) {
+		ret = do_pending_cancel(gi2c);
+		if (ret)
+			return ret; //Don't perform xfer is cancel failed
+	}
+
+	geni_ios = geni_read_reg_nolog(gi2c->base, SE_GENI_IOS);
+	if ((geni_ios & 0x3) != 0x3) { //SCL:b'1, SDA:b'0
+		GENI_SE_ERR(gi2c->ipcl, true, gi2c->dev,
+			"IO lines in bad state, Power the slave\n");
+		pm_runtime_mark_last_busy(gi2c->dev);
+		pm_runtime_put_autosuspend(gi2c->dev);
+		return -ENXIO;
 	}
 
 	GENI_SE_DBG(gi2c->ipcl, false, gi2c->dev,
@@ -1032,14 +1110,6 @@ static int geni_i2c_xfer(struct i2c_adapter *adap,
 		qcom_geni_i2c_calc_timeout(gi2c);
 		mode = msgs[i].len > 32 ? SE_DMA : FIFO_MODE;
 
-		/* Complete the transfer in FIFO mode if DMA mode
-		 * is not supported for some Automotive platform.
-		 */
-		if (gi2c->disable_dma_mode) {
-			GENI_SE_DBG(gi2c->ipcl, false, gi2c->dev,
-					"Disable DMA mode\n");
-			mode = FIFO_MODE;
-		}
 		ret = geni_se_select_mode(gi2c->base, mode);
 		if (ret) {
 			dev_err(gi2c->dev, "%s: Error mode init %d:%d:%d\n",
@@ -1112,9 +1182,20 @@ static int geni_i2c_xfer(struct i2c_adapter *adap,
 		timeout = wait_for_completion_timeout(&gi2c->xfer,
 						gi2c->xfer_timeout);
 		if (!timeout) {
+			u32 geni_ios = 0;
+
 			GENI_SE_ERR(gi2c->ipcl, true, gi2c->dev,
 				"I2C xfer timeout: %d\n", gi2c->xfer_timeout);
 			geni_i2c_err(gi2c, GENI_TIMEOUT);
+
+			/* WAR: Set flag to mark cancel pending if IOS bad */
+			geni_ios = geni_read_reg_nolog(gi2c->base, SE_GENI_IOS);
+			if ((geni_ios & 0x3) != 0x3) { //SCL:b'1, SDA:b'0
+				GENI_SE_DBG(gi2c->ipcl, true, gi2c->dev,
+					"%s: IO lines not in good state\n", __func__);
+				gi2c->prev_cancel_pending = true;
+				goto geni_i2c_txn_ret;
+			}
 		}
 
 		if (gi2c->err) {
@@ -1130,7 +1211,7 @@ static int geni_i2c_xfer(struct i2c_adapter *adap,
 				wait_for_completion_timeout(&gi2c->xfer, HZ);
 				if (!timeout)
 					GENI_SE_ERR(gi2c->ipcl, true, gi2c->dev,
-						"Abort failed\n");
+					"Abort failed\n");
 			}
 		}
 		gi2c->cur_wr = 0;
@@ -1299,9 +1380,6 @@ static int geni_i2c_probe(struct platform_device *pdev)
 			return ret;
 		}
 
-		gi2c->disable_dma_mode = of_property_read_bool(pdev->dev.of_node,
-						"qcom,disable-dma");
-
 		gi2c->irq = platform_get_irq(pdev, 0);
 		if (gi2c->irq < 0)
 			return gi2c->irq;
@@ -1396,6 +1474,29 @@ static int geni_i2c_resume_early(struct device *device)
 	return 0;
 }
 
+static int geni_i2c_gpi_pause_resume(struct geni_i2c_dev *gi2c, bool flag)
+{
+	int tx_ret = 0, rx_ret = 0;
+
+	if ((gi2c->tx_c != NULL) && (gi2c->rx_c != NULL)) {
+		if (flag) {
+			tx_ret = dmaengine_pause(gi2c->tx_c);
+			rx_ret = dmaengine_pause(gi2c->rx_c);
+		} else {
+			tx_ret = dmaengine_resume(gi2c->tx_c);
+			rx_ret = dmaengine_resume(gi2c->rx_c);
+		}
+
+		if (tx_ret || rx_ret) {
+			GENI_SE_ERR(gi2c->ipcl, true, gi2c->dev,
+			"%s failed: tx:%d rx:%d flag:%d\n",
+			__func__, tx_ret, rx_ret, flag);
+			return -EINVAL;
+		}
+	}
+	return 0;
+}
+
 /*
  * get sync/put sync in LA-VM -> do resources on/off
  * get sync/put sync in LE-VM -> do lock/unlock gpii
@@ -1403,16 +1504,36 @@ static int geni_i2c_resume_early(struct device *device)
 #if IS_ENABLED(CONFIG_PM)
 static int geni_i2c_runtime_suspend(struct device *dev)
 {
+	int ret = 0;
 	struct geni_i2c_dev *gi2c = dev_get_drvdata(dev);
 
 	if (gi2c->se_mode == FIFO_SE_DMA)
 		disable_irq(gi2c->irq);
+
+	if (gi2c->se_mode == GSI_ONLY) {
+		if (!gi2c->is_le_vm) {
+			ret = geni_i2c_gpi_pause_resume(gi2c, true);
+			if (ret) {
+				GENI_SE_ERR(gi2c->ipcl, false, gi2c->dev, "%s\n", __func__);
+				return ret;
+			}
+		}
+	}
 
 	if (gi2c->is_le_vm) {
 		if (!gi2c->first_resume)
 			geni_i2c_unlock_bus(gi2c);
 		else
 			gi2c->first_resume = false;
+
+		/* for LE VM we are doinggpi_pause after unlocking the bus */
+		if (gi2c->se_mode == GSI_ONLY) {
+			ret = geni_i2c_gpi_pause_resume(gi2c, true);
+			if (ret) {
+				GENI_SE_ERR(gi2c->ipcl, false, gi2c->dev, "%s\n", __func__);
+				return ret;
+			}
+		}
 	} else if (gi2c->is_shared) {
 		/* Do not unconfigure GPIOs if shared se */
 		se_geni_clks_off(&gi2c->i2c_rsc);
@@ -1444,13 +1565,20 @@ static int geni_i2c_runtime_resume(struct device *dev)
 
 		ret = geni_i2c_prepare(gi2c);
 		if (ret) {
-			dev_err(gi2c->dev, "I2C prepare failed\n");
+			dev_err(gi2c->dev, "I2C prepare failed: %d\n", ret);
 			return ret;
 		}
 
 		if (gi2c->se_mode == FIFO_SE_DMA)
 			enable_irq(gi2c->irq);
 
+		if (gi2c->se_mode == GSI_ONLY) {
+			ret = geni_i2c_gpi_pause_resume(gi2c, false);
+			if (ret) {
+				GENI_SE_ERR(gi2c->ipcl, false, gi2c->dev, "%s\n", __func__);
+				return ret;
+			}
+		}
 	} else if (!gi2c->first_resume) {
 		/*
 		 * For first resume call in le, do nothing, and in
@@ -1460,8 +1588,16 @@ static int geni_i2c_runtime_resume(struct device *dev)
 		 */
 		ret = geni_i2c_prepare(gi2c);
 		if (ret) {
-			dev_err(gi2c->dev, "I2C prepare failed\n");
+			dev_err(gi2c->dev, "I2C prepare failed:%d\n", ret);
 			return ret;
+		}
+
+		if (gi2c->se_mode == GSI_ONLY) {
+			ret = geni_i2c_gpi_pause_resume(gi2c, false);
+			if (ret) {
+				GENI_SE_ERR(gi2c->ipcl, false, gi2c->dev, "%s\n", __func__);
+				return ret;
+			}
 		}
 
 		ret = geni_i2c_lock_bus(gi2c);
@@ -1540,18 +1676,7 @@ static struct platform_driver geni_i2c_driver = {
 		.of_match_table = geni_i2c_dt_match,
 	},
 };
+module_platform_driver(geni_i2c_driver);
 
-static int __init i2c_dev_init(void)
-{
-	return platform_driver_register(&geni_i2c_driver);
-}
-
-static void __exit i2c_dev_exit(void)
-{
-	platform_driver_unregister(&geni_i2c_driver);
-}
-
-module_init(i2c_dev_init);
-module_exit(i2c_dev_exit);
 MODULE_LICENSE("GPL v2");
 MODULE_ALIAS("platform:i2c_geni");

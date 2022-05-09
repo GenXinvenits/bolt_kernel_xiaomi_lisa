@@ -18,9 +18,6 @@ thermal_sys-$(CONFIG_THERMAL_GOV_STEP_WISE)	+= step_wise.o
 thermal_sys-$(CONFIG_THERMAL_GOV_USER_SPACE)	+= user_space.o
 thermal_sys-$(CONFIG_THERMAL_GOV_POWER_ALLOCATOR)	+= power_allocator.o
 
-# xiaomi thermal control interface
-obj-$(CONFIG_MI_THERMAL_INTERFACE)	+= mi_thermal_interface.o
-
 # cpufreq cooling
 thermal_sys-$(CONFIG_CPU_THERMAL)	+= cpu_cooling.o
 
@@ -31,7 +28,9 @@ thermal_sys-$(CONFIG_CLOCK_THERMAL)	+= clock_cooling.o
 thermal_sys-$(CONFIG_DEVFREQ_THERMAL) += devfreq_cooling.o
 
 # debugfs support
-thermal_sys-$(CONFIG_QTI_THERMAL) += thermal_debugfs.o
+ifeq ($(CONFIG_QTI_THERMAL),y)
+thermal_sys-$(CONFIG_DEBUG_FS) += thermal_debugfs.o
+endif
 
 # platform thermal drivers
 obj-y				+= broadcom/
@@ -63,3 +62,4 @@ obj-$(CONFIG_UNIPHIER_THERMAL)	+= uniphier_thermal.o
 obj-$(CONFIG_THERMAL_TSENS)     += msm-tsens-driver.o
 msm-tsens-driver-objs     := msm-tsens.o tsens2xxx.o tsens-dbg.o tsens-mtc.o tsens1xxx.o tsens-calib.o
 obj-$(CONFIG_SPRD_THERMAL)	+= sprd_thermal.o
+obj-$(CONFIG_MI_THERMAL_INTERFACE)	+= mi_thermal_interface.o

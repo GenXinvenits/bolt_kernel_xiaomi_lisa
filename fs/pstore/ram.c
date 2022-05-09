@@ -21,7 +21,9 @@
 #include <linux/pstore_ram.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
+#ifdef CONFIG_MACH_XIAOMI
 #include <linux/memblock.h>
+#endif
 #include <soc/qcom/minidump.h>
 
 #define RAMOOPS_KERNMSG_HDR "===="
@@ -1020,6 +1022,7 @@ static void __init ramoops_register_dummy(void)
 	}
 }
 
+#ifdef CONFIG_MACH_XIAOMI
 struct ramoops_platform_data ramoops_data;
 EXPORT_SYMBOL(ramoops_data);
 
@@ -1046,6 +1049,7 @@ static int __init ramoops_memreserve(char *p)
 
 	pr_info("msm_reserve_ramoops_memory addr=%llx,size=%lx\n",
 		ramoops_data.mem_address, ramoops_data.mem_size);
+
 	pr_info("msm_reserve_ramoops_memory record_size=%lx,ftrace_size=%lx\n",
 		ramoops_data.record_size, ramoops_data.ftrace_size);
 
@@ -1058,11 +1062,14 @@ early_param("ramoops_memreserve", ramoops_memreserve);
 static int __init msm_register_ramoops_device(void)
 {
 	pr_info("msm_register_ramoops_device\n");
+
 	if (platform_device_register(&ramoops_dev))
 		pr_info("Unable to register ramoops platform device\n");
+
 	return 0;
 }
 core_initcall(msm_register_ramoops_device);
+#endif
 
 static int __init ramoops_init(void)
 {

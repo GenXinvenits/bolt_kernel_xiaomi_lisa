@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2002,2007-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/interconnect.h>
@@ -70,6 +71,8 @@ static void adreno_ringbuffer_wptr(struct adreno_device *adreno_dev,
 {
 	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
 	unsigned long flags;
+	bool write = false;
+	unsigned int val;
 	int ret = 0;
 
 	spin_lock_irqsave(&rb->preempt_lock, flags);
@@ -82,13 +85,8 @@ static void adreno_ringbuffer_wptr(struct adreno_device *adreno_dev,
 			 */
 			kgsl_pwrscale_busy(device);
 
-			/*
-			 * Ensure the write posted after a possible
-			 * GMU wakeup (write could have dropped during wakeup)
-			 */
-			ret = adreno_gmu_fenced_write(adreno_dev,
-				ADRENO_REG_CP_RB_WPTR, rb->_wptr,
-				FENCE_STATUS_WRITEDROPPED0_MASK);
+			write = true;
+			val = rb->_wptr;
 			rb->skip_inline_wptr = false;
 		}
 	} else {
@@ -103,6 +101,14 @@ static void adreno_ringbuffer_wptr(struct adreno_device *adreno_dev,
 
 	rb->wptr = rb->_wptr;
 	spin_unlock_irqrestore(&rb->preempt_lock, flags);
+
+	/*
+	 * Ensure the write posted after a possible
+	 * GMU wakeup (write could have dropped during wakeup)
+	 */
+	if (write)
+		ret = adreno_gmu_fenced_write(adreno_dev, ADRENO_REG_CP_RB_WPTR,
+			val, FENCE_STATUS_WRITEDROPPED0_MASK);
 
 	if (ret) {
 		/*
@@ -482,7 +488,7 @@ adreno_ringbuffer_addcmds(struct adreno_ringbuffer *rb,
 
 	if (gpudev->preemption_pre_ibsubmit &&
 			adreno_is_preemption_enabled(adreno_dev))
-		total_sizedwords += 27;
+		total_sizedwords += 31;
 
 	if (gpudev->preemption_post_ibsubmit &&
 			adreno_is_preemption_enabled(adreno_dev))

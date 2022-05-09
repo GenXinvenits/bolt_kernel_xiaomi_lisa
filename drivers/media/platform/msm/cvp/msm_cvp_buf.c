@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 #include "msm_cvp_common.h"
@@ -402,10 +401,9 @@ static struct msm_cvp_smem *msm_cvp_session_get_smem(struct msm_cvp_inst *inst,
 			mutex_unlock(&inst->dma_cache.lock);
 			return NULL;
 		}
-
-		dprintk(CVP_ERR, "%s: invalid offset %d or size %d and smem is new %d\n",
-			__func__, buf->offset, buf->size, !found);
-
+#ifndef CONFIG_MACH_XIAOMI
+		goto exit2;
+#else
 		mutex_lock(&inst->dma_cache.lock);
 		if (atomic_dec_and_test(&smem->refcount)) {
 			// deinit it in msm_cvp_session_add_smem
@@ -416,6 +414,7 @@ static struct msm_cvp_smem *msm_cvp_session_get_smem(struct msm_cvp_inst *inst,
 		mutex_unlock(&inst->dma_cache.lock);
 
 		smem = NULL;
+#endif
 	}
 
 	return smem;

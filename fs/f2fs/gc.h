@@ -3,7 +3,6 @@
  * fs/f2fs/gc.h
  *
  * Copyright (c) 2012 Samsung Electronics Co., Ltd.
- * Copyright (C) 2021 XiaoMi, Inc.
  *             http://www.samsung.com/
  */
 #define GC_THREAD_MIN_WB_PAGES		1	/*
@@ -12,13 +11,19 @@
 						 * or not
 						 */
 #define DEF_GC_THREAD_URGENT_SLEEP_TIME	500	/* 500 ms */
+#ifndef CONFIG_MACH_XIAOMI
+#define DEF_GC_THREAD_MIN_SLEEP_TIME	30000	/* milliseconds */
+#else
 #define DEF_GC_THREAD_MIN_SLEEP_TIME	10000	/* milliseconds */
+#endif
 #define DEF_GC_THREAD_MAX_SLEEP_TIME	60000
 #define DEF_GC_THREAD_NOGC_SLEEP_TIME	300000	/* wait 5 min */
 #define LIMIT_INVALID_BLOCK	40 /* percentage over total user space */
 #define LIMIT_FREE_BLOCK	40 /* percentage over invalid + free space */
+#ifdef CONFIG_MACH_XIAOMI
 #define MAX_GC_COUNT		64 /* max # of recycle section once */
 #define TOPLIMIT_FREE_SEGMENT(sbi)	(reserved_segments(sbi) * 4)
+#endif
 
 #define DEF_GC_FAILED_PINNED_FILES	2048
 
@@ -38,11 +43,15 @@ struct f2fs_gc_kthread {
 	/* for changing gc mode */
 	unsigned int gc_wake;
 
+#ifdef CONFIG_MACH_XIAOMI
+	/*
+	 * caller of f2fs_balance_fs()
+	 * will wait on this wait queue.
+	 */
+
 	/* for GC_MERGE mount option */
-	wait_queue_head_t fggc_wq;		/*
-						 * caller of f2fs_balance_fs()
-						 * will wait on this wait queue.
-						 */
+	wait_queue_head_t fggc_wq;
+#endif
 };
 
 struct gc_inode_list {
@@ -118,6 +127,7 @@ static inline bool has_enough_invalid_blocks(struct f2fs_sb_info *sbi)
 	return false;
 }
 
+#ifdef CONFIG_MACH_XIAOMI
 static inline void calculate_sleep_time(struct f2fs_sb_info *sbi,
 			struct f2fs_gc_kthread *gc_th, unsigned int *wait)
 {
@@ -147,3 +157,4 @@ static inline unsigned int get_gc_count(struct f2fs_sb_info *sbi)
 
 	return gc_count ? gc_count : 1;
 }
+#endif

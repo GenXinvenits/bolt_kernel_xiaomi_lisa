@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 #include "msm_drv.h"
@@ -61,6 +60,7 @@ static char sde_dsc_rc_range_min_qp[DSC_RATIO_TYPE_MAX][DSC_NUM_BUF_RANGES] = {
 /*
  * Rate control - Max QP values for each ratio type in sde_dsc_ratio_type
  */
+#ifdef CONFIG_MACH_XIAOMI
 static char sde_dsc_rc_range_max_qp_nt[DSC_RATIO_TYPE_MAX][DSC_NUM_BUF_RANGES] = {
 	/* DSC v1.1 */
 	{4, 4, 5, 6, 7, 7, 7, 8, 9, 10, 11, 12, 13, 13, 15},
@@ -79,7 +79,8 @@ static char sde_dsc_rc_range_max_qp_nt[DSC_RATIO_TYPE_MAX][DSC_NUM_BUF_RANGES] =
 	{2, 4, 5, 6, 7, 7, 7, 8, 8, 9, 9, 9, 9, 10, 12},
 	{2, 5, 7, 8, 9, 10, 11, 12, 12, 13, 13, 13, 13, 14, 15},
 	{2, 5, 5, 6, 6, 7, 7, 8, 9, 9, 10, 11, 11, 12, 13},
-	};
+};
+#endif
 
 static char sde_dsc_rc_range_max_qp[DSC_RATIO_TYPE_MAX][DSC_NUM_BUF_RANGES] = {
 	/* DSC v1.1 */
@@ -99,7 +100,8 @@ static char sde_dsc_rc_range_max_qp[DSC_RATIO_TYPE_MAX][DSC_NUM_BUF_RANGES] = {
 	{2, 4, 5, 6, 7, 7, 7, 8, 8, 9, 9, 9, 9, 10, 12},
 	{2, 5, 7, 8, 9, 10, 11, 12, 12, 13, 13, 13, 13, 14, 15},
 	{2, 5, 5, 6, 6, 7, 7, 8, 9, 9, 10, 11, 11, 12, 13},
-	};
+};
+
 /*
  * Rate control - bpg offset values for each ratio type in sde_dsc_ratio_type
  */
@@ -273,13 +275,17 @@ int sde_dsc_populate_dsc_config(struct drm_dsc_config *dsc, int scr_ver) {
 	for (i = 0; i < DSC_NUM_BUF_RANGES; i++) {
 		dsc->rc_range_params[i].range_min_qp =
 			sde_dsc_rc_range_min_qp[ratio_idx][i];
+#ifndef CONFIG_MACH_XIAOMI
+		dsc->rc_range_params[i].range_max_qp =
+			sde_dsc_rc_range_max_qp[ratio_idx][i];
+#else
 		if ((dsc->dsc_panel_id >> 8) == 0x4B3944003602)
 			dsc->rc_range_params[i].range_max_qp =
 				sde_dsc_rc_range_max_qp_nt[ratio_idx][i];
 		else
 			dsc->rc_range_params[i].range_max_qp =
 				sde_dsc_rc_range_max_qp[ratio_idx][i];
-
+#endif
 		dsc->rc_range_params[i].range_bpg_offset =
 			sde_dsc_rc_range_bpg[ratio_idx][i];
 	}

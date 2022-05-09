@@ -51,6 +51,7 @@ enum se_protocol_types {
  * @geni_gpi_sleep:	Handle to the sleep pinctrl state.
  * @num_clk_levels:	Number of valid clock levels in clk_perf_tbl.
  * @clk_perf_tbl:	Table of clock frequency input to Serial Engine clock.
+ * @skip_bw_vote:	Used for PMIC over i2c use case to skip the BW vote.
  */
 struct se_geni_rsc {
 	struct device *ctrl_dev;
@@ -73,6 +74,7 @@ struct se_geni_rsc {
 	int	clk_freq_out;
 	unsigned int num_clk_levels;
 	unsigned long *clk_perf_tbl;
+	bool skip_bw_vote;
 };
 
 #define PINCTRL_DEFAULT	"default"
@@ -838,12 +840,6 @@ int geni_se_iommu_free_buf(struct device *wrapper_dev, dma_addr_t *iova,
  */
 void geni_se_dump_dbg_regs(struct se_geni_rsc *rsc, void __iomem *base,
 				void *ipc);
-
-/*
- * This function is used to remove proxy ICC BW vote put from common driver
- * probe on behalf of earlycon usecase.
- */
-void geni_se_remove_earlycon_icc_vote(struct device *dev);
 #else
 static inline unsigned int geni_read_reg_nolog(void __iomem *base, int offset)
 {
